@@ -1,6 +1,8 @@
 *.py[cod]
 *.db
 assets/external/
+assets/uploads/*
+!assets/uploads/.gitkeep
 .web
 .states
 __pycache__/

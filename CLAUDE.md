@@ -119,4 +119,35 @@ exist. Second (forced) run correctly caught 15/16 as duplicates by URL.
 at-logon dual trigger per spec Â§5) - written and ready, but not yet run. To go live:
 run it from an elevated PowerShell prompt in `wpa_content_engine/scripts/`.
 
-Level 6: not started.
+Level 6: complete. Pipeline lives in `wpa_content_engine/wpa_content_engine/capture/`:
+`transcribe.py` (self-hosted `faster-whisper`, CPU, `base` model - not the reference
+openai-whisper package, since faster-whisper decodes via bundled PyAV wheels and needs
+no system ffmpeg install), `caption.py` (Gemini vision via the Interactions API's
+multimodal image input - free-tier, per CLAUDE.md hard rules, since photo content isn't
+in the same sensitivity class as her voice/notes text), `ingest.py` (dispatches by file
+extension: text passes through, audio â†’ transcript, photo â†’ caption + copied into
+`assets/uploads/` under a UUID name for later attachment; **video is explicitly
+rejected** with a clear error, per the hard rule - not silently processed or dropped),
+`run.py` (CLI entrypoint).
+
+Tested for real, not just plumbing: generated an actual spoken WAV via Windows' offline
+SAPI TTS ("This is a test voice note about private medical insurance...") and confirmed
+`faster-whisper` transcribed it almost exactly (only divergence: "well-being" vs.
+"wellbeing", a trivial hyphenation difference). Photo captioning tested against two
+synthetic PNGs (pure-Python-generated, no Pillow needed) - Gemini's descriptions
+accurately matched their actual colours/layout with no hallucinated content. Video
+rejection confirmed to raise loudly rather than fail silently. Then closed the full
+loop: fed real transcribed audio notes into the level 4 drafting engine
+(`generate_and_save_draft(..., skip_research=True)`) and got a coherent company-update
+draft in her voice - proving capture â†’ drafting actually connects end to end, not just
+each piece in isolation.
+
+One environment quirk worth knowing: Hugging Face's model download (first-run only, to
+fetch Whisper's weights) failed to resolve DNS from the Bash/Git-Bash shell specifically
+(`huggingface.co` unreachable) while Tavily/Gemini calls worked fine from the same
+shell, and PowerShell could reach `huggingface.co` without issue. Worked around by
+running that one command through PowerShell instead. Once cached locally
+(`~/.cache/huggingface`), subsequent runs work fine from Bash too, since no network call
+is needed at that point.
+
+Level 7: not started.
