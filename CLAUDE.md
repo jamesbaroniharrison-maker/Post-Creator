@@ -91,4 +91,32 @@ insight, research-grounded - correctly cited `wpa.org.uk` as its source; (2) a p
 reflection with `--skip-research` - no fabricated sources, stayed in commentary. Both
 saved correctly to `posts` with all new columns populated.
 
-Level 5: not started.
+Level 5: code complete and tested end to end; scheduled task not yet registered (she
+hasn't asked for it live yet). Pipeline lives in
+`wpa_content_engine/wpa_content_engine/research_cron/`: `queries.py` (standing daily
+search queries tagged industry/company per spec Â§1's two research-backed post types),
+`discovery.py` (Tavily news-mode search, reuses level 4's trusted-domain allow list),
+`dedup.py` (lexical similarity against recent bank entries, spec Â§4 LLM08: no
+embeddings needed at this scale), `scorer.py` (Gemini classifies each finding into
+high/mid/discard + category + summary - plain generation, no search tool, so it's not
+hit by the level 4 billing-gated grounding issue), `pipeline.py` (orchestrates all of
+it, idempotent per day via `job_runs` so the daily-trigger + at-logon-catchup pair from
+spec Â§5 is safe to both fire), `run.py` (CLI entrypoint, `--force` bypasses the
+once-per-day guard).
+
+Tested for real against live Tavily/Gemini: first run stored 1 mid-tier + 15 discard,
+0 high. Initially looked like a scorer bug (a WPA "Which? Recommended Provider" result
+and a new-policy-launch result both scored discard, despite looking postworthy) - but
+checking the raw Tavily results showed those pages were dated 2020-2025; Tavily's
+"news" mode surfaces by recrawl date, not publish date, so old evergreen WPA pages
+resurface under a "last 1 day" filter. Discard was the correct call - the scorer is
+properly distinguishing genuinely current news from old pages being re-crawled, exactly
+per spec Â§3a's "specific, current" bar for high tier. Zero high-tier on a given day is
+expected behaviour, not a failure - it's exactly why spec Â§1's flex-down cadence rules
+exist. Second (forced) run correctly caught 15/16 as duplicates by URL.
+
+`scripts/register_scheduled_task.ps1` registers the Windows Scheduled Task (daily +
+at-logon dual trigger per spec Â§5) - written and ready, but not yet run. To go live:
+run it from an elevated PowerShell prompt in `wpa_content_engine/scripts/`.
+
+Level 6: not started.
