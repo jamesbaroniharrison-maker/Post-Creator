@@ -1,0 +1,105 @@
+/* ============================================
+   DESIGN TOKENS - mirrors portfolio-site/styles.css lines 5-17
+   Dark mossy-green/bronze editorial palette, serif+sans+mono pairing.
+   ============================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@500&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg: #0A130D;
+  --bg-surface: #101C14;
+  --bg-surface-2: #172318;
+  --accent-moss: #5C8A6B;
+  --accent-moss-bright: #7CA982;
+  --accent-bronze: #B98B4E;
+  --text: #EDEAE0;
+  --text-muted: #92A399;
+  --border: #24352A;
+
+  --font-display: 'Fraunces', serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+
+  --radius: 6px;
+}
+
+/* Map our tokens onto Radix Themes' own variables so every rx.* component
+   (card, button, badge, select, etc.) picks up the palette without needing
+   per-component overrides. */
+.radix-themes {
+  --color-background: var(--bg) !important;
+  --color-panel-solid: var(--bg-surface) !important;
+  --color-panel-translucent: var(--bg-surface) !important;
+
+  --gray-1: var(--bg) !important;
+  --gray-2: var(--bg-surface) !important;
+  --gray-3: var(--bg-surface-2) !important;
+  --gray-4: var(--bg-surface-2) !important;
+  --gray-5: var(--border) !important;
+  --gray-6: var(--border) !important;
+  --gray-7: var(--border) !important;
+  --gray-8: var(--accent-moss) !important;
+  --gray-9: var(--text-muted) !important;
+  --gray-10: var(--text-muted) !important;
+  --gray-11: var(--text-muted) !important;
+  --gray-12: var(--text) !important;
+
+  --accent-9: var(--accent-moss) !important;
+  --accent-10: var(--accent-moss-bright) !important;
+  --accent-a9: var(--accent-moss) !important;
+
+  font-family: var(--font-body);
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+h1, h2, h3, h4, h5, h6,
+.rt-Heading {
+  font-family: var(--font-display) !important;
+  font-weight: 500 !important;
+  color: var(--text);
+}
+
+code, .rt-Code, .hud-mono {
+  font-family: var(--font-mono) !important;
+}
+
+.rt-Card {
+  background: var(--bg-surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius) !important;
+}
+
+.hud-surface-2 {
+  background: var(--bg-surface-2) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius) !important;
+}
+
+.hud-bronze {
+  color: var(--accent-bronze) !important;
+}
+
+.hud-muted {
+  color: var(--text-muted) !important;
+}
+
+::selection {
+  background: var(--accent-moss);
+  color: var(--bg);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-surface);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: var(--radius);
+}

@@ -195,6 +195,35 @@ so there's something live to click through when checked in an actual browser.
 **This still needs a real look in a browser before being called fully done** - run
 `reflex run` from `wpa_content_engine/` and log in at `/login`.
 
+**Post-level-7 additions (requested after the initial build)**:
+
+- **Design system**: restyled to match `portfolio-site`'s dark mossy-green/bronze
+  editorial palette (colors and fonts copied verbatim from that project's
+  `styles.css` lines 5-17 - see `assets/design_tokens.css`). Fraunces for headings,
+  Inter for body text, IBM Plex Mono for labels/stat values, loaded via Google Fonts.
+  The token CSS variables are mapped onto Radix Themes' own `--gray-*`/`--accent-*`
+  variables (`.radix-themes` override block) so every `rx.card`/`rx.button`/etc. picks
+  up the palette automatically rather than needing per-component color overrides.
+  Theme is forced dark (`appearance="dark"`) - the light/dark toggle was removed
+  since this is a deliberate single palette, not a themeable app. Theme config lives
+  in `rxconfig.py` via `rx.plugins.RadixThemesPlugin(theme=...)`, not `rx.App(theme=...)`
+  (the latter is deprecated as of Reflex 0.9.0).
+- **Quick actions panel** (`components.quick_actions_section`, spec extension, not in
+  the original document): three cards -
+  1. **Generate a post now** - topic + post type in, runs the full research+draft
+     pipeline on demand (doesn't wait for the topic bank).
+  2. **Run research now** - triggers `research_cron.pipeline.run_daily_research(force=True)`
+     directly from the dashboard instead of waiting for the scheduled task.
+  3. **Force next search topics** - a small queue (new `ForcedTopic` table: topic,
+     category, consumed bool) that gets folded into `DAILY_QUERIES` on the *next*
+     research run (scheduled or manual) and marked consumed afterward - a one-shot
+     nudge, not a permanent addition to the standing query list.
+
+  Tested for real: queued a forced topic, ran the exact discover -> score -> consume
+  code path the pipeline uses (isolated from the 5 standing queries, to conserve
+  Tavily/Gemini quota) - found a real WPA product page, scored it, banked it, and
+  confirmed the forced topic was removed from the pending queue afterward.
+
 ## Overall status
 
 All 7 levels have working code, each tested against real APIs/data as it was built

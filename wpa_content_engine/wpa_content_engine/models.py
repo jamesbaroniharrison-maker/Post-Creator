@@ -67,3 +67,17 @@ class JobRun(rx.Model, table=True):
 
     job_name: str
     last_run_at: datetime
+
+
+class ForcedTopic(rx.Model, table=True):
+    """A topic queued from the dashboard to be searched on the next research cron run,
+    on top of the standing daily queries (HUD quick action, not in the original spec).
+    Consumed (searched at least once) rather than recurring - a one-shot nudge, not a
+    permanent addition to the standing query list.
+    """
+
+    topic: str
+    category: str  # industry / company
+    created_at: datetime
+    consumed: bool = False
+    consumed_at: datetime | None = None

@@ -6,9 +6,11 @@ from wpa_content_engine.dashboard.state import (
     DISPLAY_DAYS,
     POST_TYPES,
     REJECTION_REASONS,
+    TOPIC_CATEGORIES,
     WEEKDAYS,
     BankView,
     DashboardState,
+    ForcedTopicView,
     PostView,
 )
 
@@ -21,12 +23,13 @@ STATUS_COLORS = {
 
 
 def stat_card(label: str, value: rx.Var) -> rx.Component:
-    return rx.card(
+    return rx.box(
         rx.vstack(
-            rx.text(label, size="2", color="gray"),
-            rx.text(value, size="6", weight="bold"),
+            rx.text(label, size="1", class_name="hud-mono hud-muted", letter_spacing="0.02em"),
+            rx.text(value, size="6", class_name="hud-bronze", weight="medium", font_family="var(--font-display)"),
             spacing="1",
         ),
+        class_name="hud-surface-2",
         padding="0.75rem 1rem",
     )
 
@@ -324,6 +327,135 @@ def topic_bank_section() -> rx.Component:
             rx.text("Nothing banked right now.", size="2", color="gray"),
         ),
         spacing="3",
+        width="100%",
+    )
+
+
+def forced_topic_chip(item: ForcedTopicView) -> rx.Component:
+    return rx.hstack(
+        rx.badge(item.category, variant="outline", size="1"),
+        rx.text(item.topic, size="2"),
+        rx.spacer(),
+        rx.icon(
+            "x",
+            size=14,
+            cursor="pointer",
+            on_click=DashboardState.remove_forced_topic(item.id),
+            class_name="hud-muted",
+        ),
+        width="100%",
+        align="center",
+        padding="0.4rem 0.6rem",
+        class_name="hud-surface-2",
+    )
+
+
+def quick_actions_section() -> rx.Component:
+    return rx.card(
+        rx.vstack(
+            rx.heading("Quick actions", size="5"),
+            rx.text(
+                "Skip the wait - draft something now, run the research scan on demand, "
+                "or queue a topic to be searched next time it runs.",
+                size="2",
+                class_name="hud-muted",
+            ),
+            rx.grid(
+                # Generate a post right now
+                rx.vstack(
+                    rx.text("Generate a post now", size="2", weight="medium", class_name="hud-mono"),
+                    rx.select(
+                        POST_TYPES,
+                        value=DashboardState.quick_post_type,
+                        on_change=DashboardState.set_quick_post_type,
+                        size="2",
+                    ),
+                    rx.input(
+                        value=DashboardState.quick_topic,
+                        on_change=DashboardState.set_quick_topic,
+                        placeholder="Topic - e.g. WPA's latest Which? award",
+                        size="2",
+                        width="100%",
+                    ),
+                    rx.button(
+                        "Research + draft",
+                        on_click=DashboardState.generate_post_now,
+                        loading=DashboardState.is_busy,
+                        color_scheme="grass",
+                        width="100%",
+                    ),
+                    spacing="2",
+                    align="start",
+                    width="100%",
+                ),
+                # Run research now
+                rx.vstack(
+                    rx.text("Run research now", size="2", weight="medium", class_name="hud-mono"),
+                    rx.text(
+                        "Scans trusted sources immediately instead of waiting for the "
+                        "daily schedule - includes any queued topics below.",
+                        size="1",
+                        class_name="hud-muted",
+                    ),
+                    rx.button(
+                        "Run research now",
+                        on_click=DashboardState.run_research_now,
+                        loading=DashboardState.is_busy,
+                        variant="soft",
+                        color_scheme="grass",
+                        width="100%",
+                    ),
+                    spacing="2",
+                    align="start",
+                    width="100%",
+                ),
+                # Force next search topics
+                rx.vstack(
+                    rx.text("Force next search topics", size="2", weight="medium", class_name="hud-mono"),
+                    rx.hstack(
+                        rx.select(
+                            TOPIC_CATEGORIES,
+                            value=DashboardState.new_forced_topic_category,
+                            on_change=DashboardState.set_new_forced_topic_category,
+                            size="2",
+                        ),
+                        rx.input(
+                            value=DashboardState.new_forced_topic,
+                            on_change=DashboardState.set_new_forced_topic,
+                            placeholder="Topic to search for",
+                            size="2",
+                            width="100%",
+                        ),
+                        width="100%",
+                        spacing="2",
+                    ),
+                    rx.button(
+                        "Queue topic",
+                        on_click=DashboardState.add_forced_topic,
+                        variant="soft",
+                        color_scheme="bronze",
+                        width="100%",
+                    ),
+                    rx.cond(
+                        DashboardState.forced_topics.length() > 0,
+                        rx.vstack(
+                            rx.foreach(DashboardState.forced_topics, forced_topic_chip),
+                            spacing="1",
+                            width="100%",
+                        ),
+                        rx.text("Nothing queued.", size="1", class_name="hud-muted"),
+                    ),
+                    spacing="2",
+                    align="start",
+                    width="100%",
+                ),
+                columns=rx.breakpoints(initial="1", md="3"),
+                spacing="4",
+                width="100%",
+            ),
+            spacing="3",
+            width="100%",
+        ),
         width="100%",
     )
 

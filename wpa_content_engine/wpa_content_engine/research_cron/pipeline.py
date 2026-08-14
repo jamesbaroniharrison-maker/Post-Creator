@@ -11,7 +11,7 @@ import reflex as rx
 import sqlmodel
 
 from rxconfig import config
-from wpa_content_engine.models import JobRun, TopicBank
+from wpa_content_engine.models import ForcedTopic, JobRun, TopicBank
 from wpa_content_engine.research_cron.dedup import is_duplicate
 from wpa_content_engine.research_cron.discovery import discover
 from wpa_content_engine.research_cron.queries import DAILY_QUERIES
@@ -46,6 +46,23 @@ def _recent_bank_entries(since: datetime) -> list[tuple[str, str]]:
     return [(r.source_title, r.source_url) for r in rows]
 
 
+def _get_pending_forced_topics() -> list[ForcedTopic]:
+    with rx.session(url=config.db_url) as session:
+        return list(
+            session.exec(sqlmodel.select(ForcedTopic).where(ForcedTopic.consumed == False))  # noqa: E712
+        )
+
+
+def _mark_forced_topic_consumed(topic_id: int, when: datetime) -> None:
+    with rx.session(url=config.db_url) as session:
+        row = session.get(ForcedTopic, topic_id)
+        if row:
+            row.consumed = True
+            row.consumed_at = when
+            session.add(row)
+            session.commit()
+
+
 def already_ran_today(now: datetime | None = None) -> bool:
     now = now or datetime.now(timezone.utc)
     last_run = _get_last_run()
@@ -66,8 +83,13 @@ def run_daily_research(force: bool = False) -> dict:
     stored_by_tier = {"high": 0, "mid": 0, "discard": 0}
     duplicates_skipped = 0
 
+    # Forced topics (HUD quick action) run alongside the standing queries and are
+    # consumed (searched once) regardless of what tier they end up scored as.
+    forced_topics = _get_pending_forced_topics()
+    all_queries = [*DAILY_QUERIES, *[(t.topic, t.category) for t in forced_topics]]
+
     with rx.session(url=config.db_url) as session:
-        for query, default_category in DAILY_QUERIES:
+        for query, default_category in all_queries:
             items = discover(query)
             for item in items:
                 if is_duplicate(item.title, item.url, recent):
@@ -89,9 +111,13 @@ def run_daily_research(force: bool = False) -> dict:
                 recent.append((item.title, item.url))  # avoid dupes within this same run
         session.commit()
 
+    for topic in forced_topics:
+        _mark_forced_topic_consumed(topic.id, now)
+
     _set_last_run(now)
     return {
         "status": "ok",
         "stored_by_tier": stored_by_tier,
         "duplicates_skipped": duplicates_skipped,
+        "forced_topics_searched": len(forced_topics),
     }

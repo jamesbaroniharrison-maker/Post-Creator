@@ -20,12 +20,14 @@ from wpa_content_engine.drafting_engine.pipeline import (
     generate_draft_with_research,
 )
 from wpa_content_engine.drafting_engine.research import ResearchFinding, ResearchResult
-from wpa_content_engine.models import Post, TopicBank
+from wpa_content_engine.models import ForcedTopic, Post, TopicBank
+from wpa_content_engine.research_cron.pipeline import run_daily_research
 
 REJECTION_REASONS = ["not relevant", "wrong tone", "already covered"]
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 DISPLAY_DAYS = [*WEEKDAYS, "Unscheduled"]
 POST_TYPES = ["industry_insight", "company_update", "personal_reflection"]
+TOPIC_CATEGORIES = ["industry", "company"]
 CATEGORY_TO_POST_TYPE = {"industry": "industry_insight", "company": "company_update"}
 ACTIVE_STATUSES = ["drafted", "approved", "published"]
 
@@ -56,6 +58,12 @@ class BankView(pydantic.BaseModel):
     category: str
 
 
+class ForcedTopicView(pydantic.BaseModel):
+    id: int
+    topic: str
+    category: str
+
+
 def _row_to_view(p: Post) -> PostView:
     return PostView(
         id=p.id,
@@ -76,7 +84,14 @@ def _row_to_view(p: Post) -> PostView:
 class DashboardState(rx.State):
     posts: list[PostView] = []
     bank_rows: list[BankView] = []
+    forced_topics: list[ForcedTopicView] = []
     stats: dict[str, str] = {}
+
+    # Quick actions
+    quick_topic: str = ""
+    quick_post_type: str = "industry_insight"
+    new_forced_topic: str = ""
+    new_forced_topic_category: str = "industry"
 
     upload_text: str = ""
     upload_post_type: str = "personal_reflection"
@@ -89,6 +104,7 @@ class DashboardState(rx.State):
     def load_dashboard(self):
         self._reload_posts()
         self._reload_bank()
+        self._reload_forced_topics()
         self._reload_stats()
 
     def _reload_posts(self):
@@ -118,6 +134,17 @@ class DashboardState(rx.State):
                 category=r.category,
             )
             for r in rows
+        ]
+
+    def _reload_forced_topics(self):
+        with rx.session(url=config.db_url) as session:
+            rows = session.exec(
+                sqlmodel.select(ForcedTopic)
+                .where(ForcedTopic.consumed == False)  # noqa: E712
+                .order_by(sqlmodel.col(ForcedTopic.created_at).asc())
+            ).all()
+        self.forced_topics = [
+            ForcedTopicView(id=r.id, topic=r.topic, category=r.category) for r in rows
         ]
 
     def _reload_stats(self):
@@ -364,6 +391,99 @@ class DashboardState(rx.State):
             self._reload_posts()
             self._reload_bank()
             self._reload_stats()
+
+    # ---- quick actions: generate post now, run research now, forced-topic queue ----
+
+    @rx.event
+    def set_quick_topic(self, value: str):
+        self.quick_topic = value
+
+    @rx.event
+    def set_quick_post_type(self, value: str):
+        self.quick_post_type = value
+
+    @rx.event(background=True)
+    async def generate_post_now(self):
+        async with self:
+            topic = self.quick_topic.strip()
+            if not topic:
+                self.status_message = "Give it a topic first."
+                return
+            post_type = self.quick_post_type
+            self.is_busy = True
+            self.status_message = f"Researching and drafting: {topic}..."
+
+        try:
+            generate_and_save_draft(topic, post_type, skip_research=False)
+            message = "Draft generated."
+        except Exception as exc:  # noqa: BLE001
+            message = f"Draft generation failed: {exc}"
+
+        async with self:
+            self.is_busy = False
+            self.status_message = message
+            self.quick_topic = ""
+            self._reload_posts()
+            self._reload_stats()
+
+    @rx.event(background=True)
+    async def run_research_now(self):
+        async with self:
+            self.is_busy = True
+            self.status_message = "Running research cron now..."
+
+        try:
+            result = run_daily_research(force=True)
+            tiers = result.get("stored_by_tier", {})
+            message = (
+                f"Research done - stored {tiers.get('high', 0)} high, "
+                f"{tiers.get('mid', 0)} mid, {tiers.get('discard', 0)} discard "
+                f"({result.get('duplicates_skipped', 0)} duplicates skipped, "
+                f"{result.get('forced_topics_searched', 0)} forced topics searched)."
+            )
+        except Exception as exc:  # noqa: BLE001
+            message = f"Research run failed: {exc}"
+
+        async with self:
+            self.is_busy = False
+            self.status_message = message
+            self._reload_bank()
+            self._reload_forced_topics()
+
+    @rx.event
+    def set_new_forced_topic(self, value: str):
+        self.new_forced_topic = value
+
+    @rx.event
+    def set_new_forced_topic_category(self, value: str):
+        self.new_forced_topic_category = value
+
+    @rx.event
+    def add_forced_topic(self):
+        topic = self.new_forced_topic.strip()
+        if not topic:
+            return
+        with rx.session(url=config.db_url) as session:
+            session.add(
+                ForcedTopic(
+                    topic=topic,
+                    category=self.new_forced_topic_category,
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+            session.commit()
+        self.new_forced_topic = ""
+        self._reload_forced_topics()
+        self.status_message = f'"{topic}" queued for the next research run.'
+
+    @rx.event
+    def remove_forced_topic(self, topic_id: int):
+        with rx.session(url=config.db_url) as session:
+            row = session.get(ForcedTopic, topic_id)
+            if row:
+                session.delete(row)
+                session.commit()
+        self._reload_forced_topics()
 
     # ---- upload box (spec Â§3b/Â§3d) ----
 
