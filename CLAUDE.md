@@ -150,4 +150,56 @@ running that one command through PowerShell instead. Once cached locally
 (`~/.cache/huggingface`), subsequent runs work fine from Bash too, since no network call
 is needed at that point.
 
-Level 7: not started.
+Level 7: code complete, compiled and serving successfully; **not yet visually verified
+in a browser** (no browser-automation tool available in this environment - see caveat
+below). Login account created directly (username `ben`; password shared with the user
+out of band, not stored anywhere in this repo).
+
+Pages/state live in `wpa_content_engine/wpa_content_engine/dashboard/`: `state.py`
+(`DashboardState` - loads posts/bank/stats from DB, all edit/approve/reject/publish/
+likes/comments/topic-bank/upload event handlers), `components.py` (stat cards, editable
+hashtag/tag chip lists, post cards, topic bank cards, upload box), `page.py` (assembles
+the page, wrapped in `reflex_local_auth.require_login`).
+
+**Auth**: uses `reflex-local-auth` (the official Reflex-team package - this *is* the
+"built-in auth" spec Â§3d meant; it's not literally inside the `reflex` core package,
+but it's the blessed first-party solution, not something hand-rolled). Its `LocalUser`/
+`LocalAuthSession` tables were migrated alongside the app's own tables. No public
+`/register` route was wired up by design - single-user system (spec Â§9), so her one
+account was created directly via a script rather than exposing self-service signup.
+The `AUTH_SECRET_KEY` env var scaffolded back in level 1 turned out to be dead - this
+package signs sessions with Reflex's own internal app secret, not a configurable env
+var - so it's been removed from `.env`/`.env.example`.
+
+**Real bugs hit and fixed while wiring this up**:
+- `rx.Base` doesn't exist in Reflex 0.9.8 (removed/renamed) - typed nested state models
+  (`PostView`, `BankView`) use plain `pydantic.BaseModel` instead.
+- `reflex_local_auth.login_page` isn't at the top level - it's
+  `reflex_local_auth.pages.login_page`.
+- `@rx.event(background=True)` isn't supported on `rx.upload`'s target handler - the
+  upload handler has to be a quick, non-background function that saves the file(s) and
+  hands off to a separate background event (`process_uploaded_files`) for the actual
+  slow ingest+draft work, so the UI doesn't block during audio transcription/captioning.
+
+**Verification done**: the app compiles and both `/` and `/login` serve HTTP 200.
+Since no browser-automation tool is available in this environment, the actual
+click-through (login form, approve/reject buttons, chip add/remove, upload widget) has
+**not** been visually exercised - only the underlying logic has, by calling the exact
+same DB/pipeline code the event handlers call, directly: generated a real draft from an
+unused topic bank row (citing its source correctly, bank row correctly marked
+`used=True`), simulated approve/reject/publish/likes/comments and confirmed `posts`
+updated correctly, and recomputed the stats panel's exact logic against real data
+(3 decided posts, 67% acceptance rate, correct avg review/publish times). One post was
+deliberately left in `drafted` status and one topic bank row deliberately left unused,
+so there's something live to click through when checked in an actual browser.
+**This still needs a real look in a browser before being called fully done** - run
+`reflex run` from `wpa_content_engine/` and log in at `/login`.
+
+## Overall status
+
+All 7 levels have working code, each tested against real APIs/data as it was built
+(not just made to compile). Two things remain before this is genuinely "done, not just
+built": (1) level 7's UI needs actual eyes-on browser verification, per above: (2) the
+level 5 daily research cron's Windows Scheduled Task is written
+(`scripts/register_scheduled_task.ps1`) but not registered - it won't run
+automatically until that script is executed.

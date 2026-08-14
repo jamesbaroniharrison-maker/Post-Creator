@@ -16,7 +16,7 @@ from wpa_content_engine.drafting_engine.research import ResearchResult, research
 from wpa_content_engine.models import Post, VoiceProfile
 
 
-def _load_voice_profile() -> dict:
+def load_voice_profile() -> dict:
     with rx.session(url=config.db_url) as session:
         row = session.exec(sqlmodel.select(VoiceProfile)).first()
     if row is None:
@@ -25,20 +25,19 @@ def _load_voice_profile() -> dict:
     return json.loads(row.profile_json)
 
 
-def generate_and_save_draft(
+def generate_draft_with_research(
     topic: str,
     post_type: str,
+    research: ResearchResult,
     source_bank_id: int | None = None,
-    skip_research: bool = False,
 ) -> Post:
-    """Research (unless skipped) and draft one post, then save it as a `posts` row."""
-    voice_profile = _load_voice_profile()
-    research = (
-        research_topic(topic)
-        if not skip_research
-        else ResearchResult(topic=topic, status="ok", findings=[])
-    )
+    """Draft and save one post, given research that's already been gathered.
 
+    Used directly by the dashboard's "generate from topic bank" action (spec Â§3d),
+    where the bank row's own summary/source already is the research - no need to
+    re-search.
+    """
+    voice_profile = load_voice_profile()
     draft = draft_post(topic, voice_profile, research)
 
     post = Post(
@@ -58,3 +57,18 @@ def generate_and_save_draft(
         session.commit()
         session.refresh(post)
     return post
+
+
+def generate_and_save_draft(
+    topic: str,
+    post_type: str,
+    source_bank_id: int | None = None,
+    skip_research: bool = False,
+) -> Post:
+    """Research (unless skipped) and draft one post, then save it as a `posts` row."""
+    research = (
+        research_topic(topic)
+        if not skip_research
+        else ResearchResult(topic=topic, status="ok", findings=[])
+    )
+    return generate_draft_with_research(topic, post_type, research, source_bank_id)
