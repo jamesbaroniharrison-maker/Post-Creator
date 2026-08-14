@@ -223,6 +223,21 @@ so there's something live to click through when checked in an actual browser.
   code path the pipeline uses (isolated from the 5 standing queries, to conserve
   Tavily/Gemini quota) - found a real WPA product page, scored it, banked it, and
   confirmed the forced topic was removed from the pending queue afterward.
+- **Depth/contrast refinement** (second design pass, HUD feedback after first look):
+  darker base (`#090D0B`), lifted card surface (`#121815`), distinct input-field
+  surface (`#1B2420`), and low-opacity glowing card borders
+  (`rgba(82, 183, 136, 0.15)`) instead of a hard border line. Body/data text moved
+  from near-white to an off-white/cream (`#E2E8F0`) to cut glare. Serif is now
+  strictly reserved for real page/section headings (`rx.heading` only, everything
+  else - buttons, labels, inputs, badges - stays on Inter). Primary CTAs (Approve,
+  Research + draft, Draft from note, Upload & draft, Generate draft, Mark published)
+  switched from saturated green to the warm bronze/gold accent; secondary actions
+  (Add, Queue topic, Copy text, Run research now) switched to outlined/ghost style
+  to cut visual noise. Status is now rendered as soft pill badges with per-status
+  muted background + soft text color (`.hud-pill-*` classes) instead of solid Radix
+  badges. Stat numbers enlarged to 32px bold with a small muted uppercase label.
+  Card/input padding doubled (`--pad: 1.25rem`); textareas got `resize="vertical"`
+  so they grow instead of clipping.
 
 ## Overall status
 

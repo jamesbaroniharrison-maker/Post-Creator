@@ -1,26 +1,37 @@
 /* ============================================
-   DESIGN TOKENS - mirrors portfolio-site/styles.css lines 5-17
-   Dark mossy-green/bronze editorial palette, serif+sans+mono pairing.
+   DESIGN TOKENS - dark mossy-green/bronze editorial palette, serif+sans+mono pairing.
+   Base tokens from portfolio-site/styles.css, depth/contrast tuned per HUD feedback.
    ============================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@500&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 :root {
-  --bg: #0A130D;
-  --bg-surface: #101C14;
-  --bg-surface-2: #172318;
+  --bg: #090D0B;             /* deep forest-black base */
+  --bg-surface: #121815;     /* card/panel surface - lifts off the base */
+  --bg-surface-2: #1B2420;   /* input fields / secondary surface */
   --accent-moss: #5C8A6B;
-  --accent-moss-bright: #7CA982;
-  --accent-bronze: #B98B4E;
-  --text: #EDEAE0;
+  --accent-moss-bright: #52B788;
+  --accent-bronze: #B98B4E;  /* warm gold/tan - primary CTA accent */
+  --text: #E2E8F0;           /* off-white/cream, not pure white - less glare */
   --text-muted: #92A399;
-  --border: #24352A;
+  --border: rgba(82, 183, 136, 0.15); /* subtle glowing edge, not a hard line */
+
+  /* Status pill colors: muted background + soft (not saturated) text */
+  --status-drafted-bg: rgba(107, 114, 128, 0.16);
+  --status-drafted-text: #E2E8F0;
+  --status-approved-bg: rgba(92, 138, 107, 0.18);
+  --status-approved-text: #A8CBB4;
+  --status-published-bg: rgba(45, 140, 140, 0.18);
+  --status-published-text: #7FDBDB;
+  --status-rejected-bg: rgba(153, 45, 45, 0.16);
+  --status-rejected-text: #E0A0A0;
 
   --font-display: 'Fraunces', serif;
   --font-body: 'Inter', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', monospace;
 
   --radius: 6px;
+  --pad: 1.25rem; /* doubled base padding for inputs/textareas/cards */
 }
 
 /* Map our tokens onto Radix Themes' own variables so every rx.* component
@@ -49,6 +60,7 @@
   --accent-a9: var(--accent-moss) !important;
 
   font-family: var(--font-body);
+  color: var(--text);
 }
 
 body {
@@ -56,6 +68,8 @@ body {
   color: var(--text);
 }
 
+/* Serif restricted to real headings only - everything else (buttons, labels,
+   inputs, badges, body text) stays on the sans body font by default. */
 h1, h2, h3, h4, h5, h6,
 .rt-Heading {
   font-family: var(--font-display) !important;
@@ -71,6 +85,7 @@ code, .rt-Code, .hud-mono {
   background: var(--bg-surface) !important;
   border: 1px solid var(--border) !important;
   border-radius: var(--radius) !important;
+  padding: var(--pad) !important;
 }
 
 .hud-surface-2 {
@@ -85,6 +100,54 @@ code, .rt-Code, .hud-mono {
 
 .hud-muted {
   color: var(--text-muted) !important;
+}
+
+/* Inputs/selects/textareas: deep olive-grey fields, doubled padding, room to
+   grow vertically instead of clipping. */
+.rt-TextFieldRoot,
+.rt-TextAreaInput,
+.rt-SelectTrigger {
+  background: var(--bg-surface-2) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+  padding: 0.65rem 0.85rem !important;
+}
+
+.rt-TextAreaInput {
+  min-height: 140px;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* Status pills */
+.hud-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1.2;
+}
+.hud-pill-drafted { background: var(--status-drafted-bg); color: var(--status-drafted-text); }
+.hud-pill-approved { background: var(--status-approved-bg); color: var(--status-approved-text); }
+.hud-pill-published { background: var(--status-published-bg); color: var(--status-published-text); }
+.hud-pill-rejected { background: var(--status-rejected-bg); color: var(--status-rejected-text); }
+
+/* Stat numbers: prominent bold display size */
+.hud-stat-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--accent-bronze);
+  font-family: var(--font-body);
+  line-height: 1.1;
+}
+.hud-stat-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 ::selection {

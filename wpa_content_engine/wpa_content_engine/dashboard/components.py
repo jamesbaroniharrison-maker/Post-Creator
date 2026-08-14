@@ -14,23 +14,33 @@ from wpa_content_engine.dashboard.state import (
     PostView,
 )
 
-STATUS_COLORS = {
-    "drafted": "gray",
-    "approved": "blue",
-    "published": "green",
-    "rejected": "red",
-}
+PRIMARY_CTA = {"color_scheme": "bronze", "variant": "solid"}
+SECONDARY_CTA = {"color_scheme": "bronze", "variant": "outline"}
+
+
+def status_pill(status: rx.Var) -> rx.Component:
+    return rx.box(
+        status,
+        class_name=rx.match(
+            status,
+            ("drafted", "hud-pill hud-pill-drafted"),
+            ("approved", "hud-pill hud-pill-approved"),
+            ("published", "hud-pill hud-pill-published"),
+            ("rejected", "hud-pill hud-pill-rejected"),
+            "hud-pill hud-pill-drafted",
+        ),
+    )
 
 
 def stat_card(label: str, value: rx.Var) -> rx.Component:
     return rx.box(
         rx.vstack(
-            rx.text(label, size="1", class_name="hud-mono hud-muted", letter_spacing="0.02em"),
-            rx.text(value, size="6", class_name="hud-bronze", weight="medium", font_family="var(--font-display)"),
+            rx.text(label, class_name="hud-stat-label"),
+            rx.text(value, class_name="hud-stat-value"),
             spacing="1",
         ),
         class_name="hud-surface-2",
-        padding="0.75rem 1rem",
+        padding="var(--pad)",
     )
 
 
@@ -93,7 +103,7 @@ def chip_list(
                 size="1",
                 on_key_down=lambda k: rx.cond(k == "Enter", on_add, rx.noop()),
             ),
-            rx.button("Add", on_click=on_add, size="1", variant="soft"),
+            rx.button("Add", on_click=on_add, size="1", variant="outline", color_scheme="bronze"),
             spacing="2",
         ),
         spacing="2",
@@ -104,7 +114,7 @@ def chip_list(
 
 def rejection_menu(post_id: rx.Var) -> rx.Component:
     return rx.menu.root(
-        rx.menu.trigger(rx.button("Reject", color_scheme="red", variant="soft", size="2")),
+        rx.menu.trigger(rx.button("Reject", color_scheme="red", variant="outline", size="2")),
         rx.menu.content(
             *[
                 rx.menu.item(reason, on_click=DashboardState.reject(post_id, reason))
@@ -118,7 +128,7 @@ def sources_list(sources: rx.Var) -> rx.Component:
     return rx.cond(
         sources.length() > 0,
         rx.vstack(
-            rx.text("Sources", size="2", weight="bold", color="gray"),
+            rx.text("Sources", size="2", weight="medium", class_name="hud-muted"),
             rx.foreach(
                 sources,
                 lambda s: rx.link(s["title"], href=s["url"], size="2", is_external=True),
@@ -135,14 +145,7 @@ def post_card(post: PostView) -> rx.Component:
         rx.vstack(
             rx.hstack(
                 rx.badge(post.post_type, variant="outline"),
-                rx.badge(post.status, color_scheme=rx.match(
-                    post.status,
-                    ("drafted", "gray"),
-                    ("approved", "blue"),
-                    ("published", "green"),
-                    ("rejected", "red"),
-                    "gray",
-                )),
+                status_pill(post.status),
                 rx.spacer(),
                 rx.select(
                     WEEKDAYS,
@@ -158,9 +161,10 @@ def post_card(post: PostView) -> rx.Component:
                 on_change=lambda v: DashboardState.set_draft_text(post.id, v),
                 on_blur=lambda _: DashboardState.save_draft_text(post.id),
                 width="100%",
-                min_height="120px",
+                min_height="140px",
+                resize="vertical",
             ),
-            rx.text("Hashtags", size="2", weight="bold", color="gray"),
+            rx.text("Hashtags", size="2", weight="medium", class_name="hud-muted"),
             chip_list(
                 post.hashtags,
                 lambda tag: DashboardState.remove_hashtag(post.id, tag),
@@ -169,7 +173,7 @@ def post_card(post: PostView) -> rx.Component:
                 DashboardState.add_hashtag(post.id),
                 "add hashtag",
             ),
-            rx.text("Tags", size="2", weight="bold", color="gray"),
+            rx.text("Tags", size="2", weight="medium", class_name="hud-muted"),
             chip_list(
                 post.tags,
                 lambda tag: DashboardState.remove_tag(post.id, tag),
@@ -179,17 +183,18 @@ def post_card(post: PostView) -> rx.Component:
                 "add tag / @mention",
             ),
             sources_list(post.sources),
-            rx.text("Compliance note", size="2", weight="bold", color="gray"),
+            rx.text("Compliance note", size="2", weight="medium", class_name="hud-muted"),
             rx.text_area(
                 value=post.compliance_note,
                 on_change=lambda v: DashboardState.set_compliance_note(post.id, v),
                 on_blur=lambda _: DashboardState.save_compliance_note(post.id),
                 width="100%",
-                min_height="60px",
+                min_height="80px",
+                resize="vertical",
             ),
             rx.cond(
                 post.status == "rejected",
-                rx.badge(f"Rejected: {post.rejection_reason}", color_scheme="red"),
+                rx.box(f"Rejected: {post.rejection_reason}", class_name="hud-pill hud-pill-rejected"),
                 rx.fragment(),
             ),
             rx.cond(
@@ -200,16 +205,16 @@ def post_card(post: PostView) -> rx.Component:
                         on_change=lambda v: DashboardState.set_likes_input(post.id, v),
                         on_blur=lambda _: DashboardState.save_likes(post.id),
                         placeholder="likes",
-                        size="1",
-                        width="6rem",
+                        size="2",
+                        width="7rem",
                     ),
                     rx.input(
                         value=post.comments_input,
                         on_change=lambda v: DashboardState.set_comments_input(post.id, v),
                         on_blur=lambda _: DashboardState.save_comments(post.id),
                         placeholder="comments",
-                        size="1",
-                        width="6rem",
+                        size="2",
+                        width="7rem",
                     ),
                     spacing="2",
                 ),
@@ -219,7 +224,7 @@ def post_card(post: PostView) -> rx.Component:
                 rx.cond(
                     post.status == "drafted",
                     rx.hstack(
-                        rx.button("Approve", on_click=DashboardState.approve(post.id), color_scheme="green"),
+                        rx.button("Approve", on_click=DashboardState.approve(post.id), **PRIMARY_CTA),
                         rejection_menu(post.id),
                         spacing="2",
                     ),
@@ -231,19 +236,18 @@ def post_card(post: PostView) -> rx.Component:
                         rx.text(
                             "Copy into LinkedIn's composer, then mark it published once it's live.",
                             size="1",
-                            color="gray",
+                            class_name="hud-muted",
                         ),
                         rx.hstack(
                             rx.button(
                                 "Copy text",
                                 on_click=rx.set_clipboard(post.draft_text),
-                                variant="soft",
+                                **SECONDARY_CTA,
                             ),
                             rx.button(
                                 "Mark published",
                                 on_click=DashboardState.mark_published(post.id),
-                                color_scheme="green",
-                                variant="soft",
+                                **PRIMARY_CTA,
                             ),
                             spacing="2",
                         ),
@@ -305,7 +309,7 @@ def bank_row_card(row: BankView) -> rx.Component:
                 align="start",
             ),
             rx.spacer(),
-            rx.button("Generate draft", on_click=DashboardState.generate_from_bank(row.id), size="2"),
+            rx.button("Generate draft", on_click=DashboardState.generate_from_bank(row.id), size="2", **PRIMARY_CTA),
             width="100%",
             align="start",
         ),
@@ -319,12 +323,12 @@ def topic_bank_section() -> rx.Component:
         rx.text(
             "Unused findings, high tier first - generate a draft directly, or leave it banked.",
             size="2",
-            color="gray",
+            class_name="hud-muted",
         ),
         rx.cond(
             DashboardState.bank_rows.length() > 0,
             rx.vstack(rx.foreach(DashboardState.bank_rows, bank_row_card), spacing="2", width="100%"),
-            rx.text("Nothing banked right now.", size="2", color="gray"),
+            rx.text("Nothing banked right now.", size="2", class_name="hud-muted"),
         ),
         spacing="3",
         width="100%",
@@ -381,8 +385,8 @@ def quick_actions_section() -> rx.Component:
                         "Research + draft",
                         on_click=DashboardState.generate_post_now,
                         loading=DashboardState.is_busy,
-                        color_scheme="grass",
                         width="100%",
+                        **PRIMARY_CTA,
                     ),
                     spacing="2",
                     align="start",
@@ -401,9 +405,8 @@ def quick_actions_section() -> rx.Component:
                         "Run research now",
                         on_click=DashboardState.run_research_now,
                         loading=DashboardState.is_busy,
-                        variant="soft",
-                        color_scheme="grass",
                         width="100%",
+                        **SECONDARY_CTA,
                     ),
                     spacing="2",
                     align="start",
@@ -432,9 +435,8 @@ def quick_actions_section() -> rx.Component:
                     rx.button(
                         "Queue topic",
                         on_click=DashboardState.add_forced_topic,
-                        variant="soft",
-                        color_scheme="bronze",
                         width="100%",
+                        **SECONDARY_CTA,
                     ),
                     rx.cond(
                         DashboardState.forced_topics.length() > 0,
@@ -466,7 +468,7 @@ def upload_box() -> rx.Component:
         rx.text(
             "Text, photo, or audio - whatever's easiest. Video isn't supported.",
             size="2",
-            color="gray",
+            class_name="hud-muted",
         ),
         rx.select(
             POST_TYPES,
@@ -479,11 +481,13 @@ def upload_box() -> rx.Component:
             on_change=DashboardState.set_upload_text,
             placeholder="Write a quick note...",
             width="100%",
+            resize="vertical",
         ),
         rx.button(
             "Draft from note",
             on_click=DashboardState.submit_text_upload,
             loading=DashboardState.is_busy,
+            **PRIMARY_CTA,
         ),
         rx.upload(
             rx.vstack(
@@ -508,7 +512,7 @@ def upload_box() -> rx.Component:
             "Upload & draft",
             on_click=DashboardState.handle_upload(rx.upload_files(upload_id="weekly_upload")),
             loading=DashboardState.is_busy,
-            variant="soft",
+            **PRIMARY_CTA,
         ),
         rx.cond(
             DashboardState.status_message != "",
