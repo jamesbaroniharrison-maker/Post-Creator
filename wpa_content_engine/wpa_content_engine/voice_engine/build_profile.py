@@ -13,13 +13,18 @@ from wpa_content_engine.voice_engine.ingestion import get_all_sample_texts
 from wpa_content_engine.voice_engine.keyness import compute_keyness
 from wpa_content_engine.voice_engine.structural import compute_structural_stats
 
-# Shortest posts read fastest and are the least likely to ramble off-voice,
-# so they make the most reliable curated few-shot examples for the drafting prompt.
+# Picking the shortest posts would mostly surface one-line reactions ("Very proud of
+# this girl!") which don't show the drafting engine what a full post looks like. Posts
+# closest to the corpus's own median length are more representative of an actual post.
 _FEW_SHOT_COUNT = 3
 
 
 def _pick_few_shot_examples(texts: list[str]) -> list[str]:
-    return sorted(texts, key=len)[:_FEW_SHOT_COUNT]
+    if not texts:
+        return []
+    lengths = sorted(len(t) for t in texts)
+    median_len = lengths[len(lengths) // 2]
+    return sorted(texts, key=lambda t: abs(len(t) - median_len))[:_FEW_SHOT_COUNT]
 
 
 def build_profile() -> dict:

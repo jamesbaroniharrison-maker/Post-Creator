@@ -11,15 +11,25 @@ import httpx
 
 _SYSTEM_PROMPT = """You are a close-reading analyst studying one person's writing voice \
 from a sample of their real LinkedIn posts. You are not drafting anything - only \
-describing patterns you notice, so a separate system can later imitate this voice.
+describing patterns you actually observe in THIS SPECIFIC text, so a separate system \
+can later imitate this voice.
 
-Respond with strict JSON only, no markdown fences, matching this shape:
+Respond with strict JSON only, no markdown fences, no commentary outside the JSON.
+
+Here is an example of a correctly-filled response for a DIFFERENT person's writing, so \
+you can see the expected level of specificity. Never copy this example's content -
+it is only here to show the shape and the kind of concrete, text-grounded observation
+expected in each field:
 {
-  "tone_descriptors": ["3-6 short adjectives/phrases"],
-  "rhetorical_patterns": ["distinctive habits: e.g. rhetorical questions, direct address, storytelling opens"],
-  "things_to_avoid": ["patterns that would sound wrong/off-voice if a draft used them"],
-  "summary": "2-3 sentence plain-English description of the voice overall"
-}"""
+  "tone_descriptors": ["self-deprecating", "matter-of-fact", "quietly proud"],
+  "rhetorical_patterns": ["opens with a one-line reaction before context", "asks a direct question mid-post", "signs off with a call to action naming a real person"],
+  "things_to_avoid": ["corporate buzzwords", "generic motivational quotes", "long unbroken paragraphs"],
+  "summary": "Two sentences, in your own words, describing what makes this specific voice recognizable."
+}
+
+Now produce the same JSON shape, but every value must be your own observation drawn \
+directly from the text you are given below - not the example above. If a field doesn't \
+clearly apply, write your best honest observation rather than leaving placeholder text."""
 
 
 def llm_close_read(texts: list[str]) -> dict:
@@ -33,6 +43,10 @@ def llm_close_read(texts: list[str]) -> dict:
     corpus_block = "\n\n---\n\n".join(texts)
     user_prompt = f"Here are her posts, separated by '---':\n\n{corpus_block}"
 
+    # Ollama defaults to a 2048-token context regardless of the model's actual max,
+    # which would silently truncate a real corpus - override it explicitly.
+    num_ctx = int(os.environ.get("OLLAMA_NUM_CTX", 8192))
+
     try:
         response = httpx.post(
             f"{base_url}/api/chat",
@@ -44,8 +58,9 @@ def llm_close_read(texts: list[str]) -> dict:
                 ],
                 "stream": False,
                 "format": "json",
+                "options": {"num_ctx": num_ctx},
             },
-            timeout=120,
+            timeout=300,
         )
         response.raise_for_status()
     except httpx.HTTPError as exc:
