@@ -57,4 +57,38 @@ structural stats (avg 64 words/post, minimal hashtag/emoji use, low exclamation 
 matches the real corpus), and the close read (self-deprecating, matter-of-fact,
 encouraging; notes her habit of opening with "So" to pivot problem→solution).
 
-Level 4: not started.
+Level 4: complete. Pipeline lives in `wpa_content_engine/wpa_content_engine/drafting_engine/`:
+`schema.py` (`DraftOutput` pydantic model: text, hashtags, tags, suggested_day, sources,
+compliance_note), `research.py` (Tavily search restricted to spec Â§3a's trusted-domain
+allow list), `draft.py` (Ollama-only drafting call combining voice profile + research +
+compliance instructions), `pipeline.py` (orchestrates both + saves to `posts`), `run.py`
+(CLI: `python -m wpa_content_engine.drafting_engine.run --topic "..." --post-type ...`,
+`--skip-research` for posts like personal reflections that don't need external facts).
+
+**Schema change**: `posts` (built in level 2) only had `draft_text` - no columns for
+hashtags/tags/suggested_day/sources/compliance_note, even though the dashboard (spec
+Â§3d) needs all of these as separate editable elements. Added via a new migration while
+the table was still empty (`models.py`, migration
+`8124847f1d14_level_4_add_hashtags_tags_suggested_day_.py`).
+
+**API decisions**: Gemini's `google_search` grounding tool 429'd on the very first call
+even on the free tier (needs billing enabled) - confirmed live, not assumed. Switched to
+Tavily (search API built for LLM use, genuinely free, 1000 searches/month, no billing
+required) for the research call instead. `TAVILY_API_KEY` in `.env`. Gemini key kept
+configured for level 6 photo-captioning, where it should still work fine (no search tool
+needed there).
+
+**Real bug found and fixed**: `python-dotenv` was installed since level 1 but
+`load_dotenv()` was never actually called anywhere, so `.env` was silently never loaded
+outside of `reflex run` (which reads it via a different path). `research.py`, `draft.py`,
+and `close_read.py` all read `os.environ` directly and could silently get nothing
+depending on import order. Fixed by calling `dotenv.load_dotenv()` in `rxconfig.py` and,
+defensively, in each of those three modules directly (so they don't depend on import
+order to work standalone).
+
+Tested end to end against real data: (1) a WPA/Which? Recommended Provider industry
+insight, research-grounded - correctly cited `wpa.org.uk` as its source; (2) a personal
+reflection with `--skip-research` - no fabricated sources, stayed in commentary. Both
+saved correctly to `posts` with all new columns populated.
+
+Level 5: not started.

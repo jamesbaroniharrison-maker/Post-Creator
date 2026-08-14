@@ -1,0 +1,60 @@
+"""Orchestrates the two-call pattern: research a topic, then draft a post in her voice.
+
+Level 4 scope: topic in, structured draft out, saved to `posts`. Level 5 wires this up
+to the daily research cron + topic bank so topics don't have to be supplied by hand.
+"""
+
+import json
+from datetime import datetime, timezone
+
+import reflex as rx
+import sqlmodel
+
+from rxconfig import config
+from wpa_content_engine.drafting_engine.draft import draft_post
+from wpa_content_engine.drafting_engine.research import ResearchResult, research_topic
+from wpa_content_engine.models import Post, VoiceProfile
+
+
+def _load_voice_profile() -> dict:
+    with rx.session(url=config.db_url) as session:
+        row = session.exec(sqlmodel.select(VoiceProfile)).first()
+    if row is None:
+        msg = "No voice_profile row yet - run the level 3 voice engine first."
+        raise RuntimeError(msg)
+    return json.loads(row.profile_json)
+
+
+def generate_and_save_draft(
+    topic: str,
+    post_type: str,
+    source_bank_id: int | None = None,
+    skip_research: bool = False,
+) -> Post:
+    """Research (unless skipped) and draft one post, then save it as a `posts` row."""
+    voice_profile = _load_voice_profile()
+    research = (
+        research_topic(topic)
+        if not skip_research
+        else ResearchResult(topic=topic, status="ok", findings=[])
+    )
+
+    draft = draft_post(topic, voice_profile, research)
+
+    post = Post(
+        post_type=post_type,
+        status="drafted",
+        draft_text=draft.text,
+        hashtags=json.dumps(draft.hashtags),
+        tags=json.dumps(draft.tags),
+        suggested_day=draft.suggested_day,
+        sources=json.dumps([s.model_dump() for s in draft.sources]),
+        compliance_note=draft.compliance_note,
+        source_bank_id=source_bank_id,
+        created_at=datetime.now(timezone.utc),
+    )
+    with rx.session(url=config.db_url) as session:
+        session.add(post)
+        session.commit()
+        session.refresh(post)
+    return post

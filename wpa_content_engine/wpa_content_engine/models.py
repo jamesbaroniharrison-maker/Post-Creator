@@ -20,11 +20,23 @@ class TopicBank(rx.Model, table=True):
 
 
 class Post(rx.Model, table=True):
-    """A draft's full lifecycle from generation through publish (spec Â§3d)."""
+    """A draft's full lifecycle from generation through publish (spec Â§3d).
+
+    Beyond the original Â§9 columns: the dashboard (Â§3d) needs hashtags and tags as
+    editable chips, a suggested posting day, and a compliance note shown separately
+    from the post body - so those need their own columns, not folded into draft_text.
+    Added at level 4, while the table was still empty, rather than after real drafts
+    exist (CLAUDE.md: schema mistakes are expensive to unwind once there's real data).
+    """
 
     post_type: str
     status: str  # drafted / approved / rejected / published
     draft_text: str
+    hashtags: str = ""  # JSON-encoded list[str]
+    tags: str = ""  # JSON-encoded list[str] - people/orgs to @mention
+    suggested_day: str | None = None  # e.g. "Tuesday"
+    sources: str = ""  # JSON-encoded list[{"title": str, "url": str}]
+    compliance_note: str | None = None
     source_bank_id: int | None = sqlmodel.Field(foreign_key="topicbank.id", default=None)
     created_at: datetime
     reviewed_at: datetime | None = None

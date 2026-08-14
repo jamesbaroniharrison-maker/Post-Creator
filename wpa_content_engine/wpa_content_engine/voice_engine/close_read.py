@@ -7,7 +7,12 @@ must never leave the machine (CLAUDE.md hard rule: drafting-adjacent calls stay 
 import json
 import os
 
+import dotenv
 import httpx
+
+# Reading os.environ directly means this module can't rely on rxconfig's
+# side-effecting load_dotenv() having already run - call it here too.
+dotenv.load_dotenv()
 
 _SYSTEM_PROMPT = """You are a close-reading analyst studying one person's writing voice \
 from a sample of their real LinkedIn posts. You are not drafting anything - only \
