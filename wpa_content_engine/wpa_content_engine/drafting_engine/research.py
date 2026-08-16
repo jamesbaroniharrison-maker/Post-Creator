@@ -16,17 +16,52 @@ import pydantic
 # call it here too so this works standalone regardless of import order.
 dotenv.load_dotenv()
 
-# Spec Â§3a allow list.
+# Spec Â§3a allow list, expanded well beyond the original starting set (request:
+# "drastically expand the reliable sources"). Grouped by why each one is trustworthy
+# enough to cite in a compliance-sensitive health-insurance post - still no generic
+# SEO/comparison content or unmoderated forums, per the original mandate.
 TRUSTED_DOMAINS = [
+    # WPA itself
     "wpa.org.uk",
+    # NHS / UK government / official health bodies
     "nhs.uk",
     "england.nhs.uk",
     "gov.uk",
+    "ons.gov.uk",
+    "parliament.uk",
+    "nhsconfed.org",
+    "nice.org.uk",
+    # UK health policy think tanks / research bodies
+    "kingsfund.org.uk",
+    "nuffieldtrust.org.uk",
+    "health.org.uk",
+    "laingbuisson.com",
+    # Insurance industry bodies + trade press
     "abi.org.uk",
+    "biba.org.uk",
     "healthandprotection.co.uk",
     "covermagazine.co.uk",
+    "insuranceage.co.uk",
+    "insurancebusinessmag.com",
+    "insurancetimes.co.uk",
+    "postonline.co.uk",
+    "protectionreview.co.uk",
+    "theactuary.com",
+    # Financial/professional adviser press
     "moneymarketing.co.uk",
+    "ftadviser.com",
+    "professionaladviser.com",
+    "corporate-adviser.com",
+    # Employee benefits / workplace wellbeing (EAP content, spec Â§1)
+    "employeebenefits.co.uk",
+    "reba.global",
+    "cipd.org",
+    # Consumer/ratings bodies
+    "which.co.uk",
     "moneyfactscompare.co.uk",
+    # Mainstream UK news, health/business sections only in practice via query wording
+    "bbc.co.uk",
+    "theguardian.com",
 ]
 
 

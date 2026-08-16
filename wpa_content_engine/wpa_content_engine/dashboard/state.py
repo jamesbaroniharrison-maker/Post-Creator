@@ -102,10 +102,22 @@ class DashboardState(rx.State):
 
     @rx.event
     def load_dashboard(self):
-        self._reload_posts()
-        self._reload_bank()
-        self._reload_forced_topics()
-        self._reload_stats()
+        """Runs on every page load. Never let a single bad reload blank the whole
+        page for someone with no way to debug it - fail into a visible message."""
+        try:
+            self._reload_posts()
+            self._reload_bank()
+            self._reload_forced_topics()
+            self._reload_stats()
+        except Exception as exc:  # noqa: BLE001
+            self.status_message = (
+                f"Couldn't load the dashboard ({exc}). Try refreshing the page - "
+                "if it keeps happening, get in touch."
+            )
+
+    @rx.event
+    def clear_status_message(self):
+        self.status_message = ""
 
     def _reload_posts(self):
         with rx.session(url=config.db_url) as session:

@@ -514,11 +514,6 @@ def upload_box() -> rx.Component:
             loading=DashboardState.is_busy,
             **PRIMARY_CTA,
         ),
-        rx.cond(
-            DashboardState.status_message != "",
-            rx.callout(DashboardState.status_message, size="1"),
-            rx.fragment(),
-        ),
         spacing="3",
         width="100%",
     )

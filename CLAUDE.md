@@ -238,6 +238,53 @@ so there's something live to click through when checked in an actual browser.
   badges. Stat numbers enlarged to 32px bold with a small muted uppercase label.
   Card/input padding doubled (`--pad: 1.25rem`); textareas got `resize="vertical"`
   so they grow instead of clipping.
+- **Non-technical-usability audit** (requested directly): the standing goal is that
+  someone with zero coding experience, whose only intended action is "open the app,"
+  hits no dead ends. Confirmed with the user first that she'll be sitting at this same
+  computer (not a separate device) - so this stays localhost-only; real network/cloud
+  hosting (spec Â§5's original plan) is explicitly not built and would need its own
+  security pass (HTTPS, hardening beyond localhost auth) if that changes later.
+  - **`Start WPA Content Engine.bat`** (project root): double-click launcher. Clears
+    any stale processes still holding ports 3000/8000 from a previous run, checks
+    Ollama is reachable and starts it if not, launches the server in its own window,
+    polls until the frontend responds, then opens the browser straight to `/login`
+    automatically. Tested for real (not just written and assumed): ran a
+    non-interactive copy of the script end to end and confirmed it actually gets the
+    dashboard serving HTTP 200 with no manual steps.
+  - **`HOW TO USE.txt`** (project root, plain English, no jargon): step by step -
+    starting the app, logging in, what each dashboard section does, and what to do if
+    something looks broken. Deliberately separate from `CLAUDE.md`, which stays the
+    developer-facing build log she'll never need to open.
+  - **Robustness pass**: `load_dashboard` (runs automatically on every page load)
+    wasn't wrapped in error handling - a DB hiccup there would have blanked the whole
+    page with no way for a non-technical user to recover. Now it fails into a visible,
+    plain-English status message instead. That status message also moved from being
+    buried inside the upload box to a dismissible banner at the top of the page, so
+    upload/generate/research failures are impossible to miss. Every backend call that
+    can fail (Ollama down, API quota, bad file) already routed through existing
+    try/except blocks into `status_message` - confirmed by re-reading every background
+    event handler in `dashboard/state.py`, not just the new ones.
+  - **Known remaining limitation, not fixed**: there's no self-service password reset
+    (no email system, single-user app) - if she forgets her password, only a direct DB
+    script fix works. Documented in `HOW TO USE.txt` as "contact James," which is an
+    acceptable tradeoff at this scale but worth knowing about.
+- **Trusted source expansion** (requested directly): `drafting_engine/research.py`'s
+  `TRUSTED_DOMAINS` grew from 9 to 33 domains, organized by category - NHS/gov/policy
+  think tanks (added `ons.gov.uk`, `parliament.uk`, `nice.org.uk`, `nhsconfed.org`,
+  `kingsfund.org.uk`, `nuffieldtrust.org.uk`, `health.org.uk`, `laingbuisson.com`),
+  insurance trade press (added `biba.org.uk`, `insuranceage.co.uk`,
+  `insurancebusinessmag.com`, `insurancetimes.co.uk`, `postonline.co.uk`,
+  `protectionreview.co.uk`, `theactuary.com`), adviser press (`ftadviser.com`,
+  `professionaladviser.com`, `corporate-adviser.com`), employee benefits/EAP sources
+  (`employeebenefits.co.uk`, `reba.global`, `cipd.org` - spec Â§1's EAP content angle),
+  and mainstream UK news (`which.co.uk`, `bbc.co.uk`, `theguardian.com`). Deliberately
+  still excludes competitor insurer newsrooms and generic SEO/comparison sites, per the
+  original mandate. `research_cron/queries.py`'s `DAILY_QUERIES` expanded from 5 to 14
+  so these new domains actually get searched, not just sit unused in the allow list -
+  added queries for NHS waiting times, employee benefits/wellbeing, protection
+  insurance, broker/adviser news, workplace mental health, and market reports. Tested
+  live: a query for "UK employee benefits workplace wellbeing news" correctly surfaced
+  real `employeebenefits.co.uk` results that wouldn't have matched the old domain list.
 
 ## Overall status
 

@@ -10,10 +10,19 @@ INDUSTRY_QUERIES = [
     "NHS health policy news",
     "UK health insurance regulation ABI",
     "UK private healthcare screening cancer news",
+    "NHS waiting times news",
+    "UK employee benefits workplace wellbeing news",
+    "UK protection insurance industry news",
+    "UK health insurance broker adviser news",
+    "UK mental health workplace news",
+    "UK private healthcare market report",
+    "Which? health insurance recommended provider",
+    "UK health insurance award news",
 ]
 
 COMPANY_QUERIES = [
     "WPA health insurance news",
+    "WPA Which? Recommended Provider",
 ]
 
 # (query, default_category)

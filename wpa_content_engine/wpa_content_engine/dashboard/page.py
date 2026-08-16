@@ -36,11 +36,27 @@ def _header() -> rx.Component:
     )
 
 
+def _status_banner() -> rx.Component:
+    return rx.cond(
+        DashboardState.status_message != "",
+        rx.callout(
+            DashboardState.status_message,
+            icon="info",
+            width="100%",
+            margin_bottom="1rem",
+            on_click=DashboardState.clear_status_message,
+            cursor="pointer",
+        ),
+        rx.fragment(),
+    )
+
+
 @reflex_local_auth.require_login
 def dashboard_page() -> rx.Component:
     return rx.box(
         rx.container(
             _header(),
+            _status_banner(),
             rx.vstack(
                 stats_panel(),
                 quick_actions_section(),
