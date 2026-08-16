@@ -81,3 +81,25 @@ class ForcedTopic(rx.Model, table=True):
     created_at: datetime
     consumed: bool = False
     consumed_at: datetime | None = None
+
+
+class ApiUsageCounter(rx.Model, table=True):
+    """Tracks Tavily search calls per calendar month, so the research pipeline can stop
+    itself before exceeding the free tier's 1000/month cap, rather than finding out the
+    hard way mid-month (request: "check it won't overuse usage").
+    """
+
+    month_key: str  # "2026-08"
+    tavily_calls: int = 0
+
+
+class EmailSettings(rx.Model, table=True):
+    """Single-row settings for the two scheduled email jobs (weekly personal-story
+    reminder, Sunday weekly-post digest) - requested after the original spec, not in
+    Â§9. Sending is inert until SMTP credentials exist in .env (see email_engine/).
+    """
+
+    recipient_email: str
+    reminder_day: str = "Friday"  # weekday she's most likely to actually send a story
+    reminder_enabled: bool = True
+    digest_enabled: bool = True

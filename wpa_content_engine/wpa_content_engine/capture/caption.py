@@ -33,10 +33,11 @@ def caption_photo(file_path: str) -> str:
     with open(file_path, "rb") as f:
         image_b64 = base64.b64encode(f.read()).decode("ascii")
 
+    model = os.environ.get("GEMINI_MODEL", "gemini-flash-lite-latest")
     response = httpx.post(
         f"https://generativelanguage.googleapis.com/v1beta/interactions?key={api_key}",
         json={
-            "model": "gemini-3.7-flash",
+            "model": model,
             "system_instruction": _SYSTEM_INSTRUCTION,
             "input": [
                 {"type": "text", "text": "Caption this photo."},

@@ -13,7 +13,7 @@
   --accent-moss-bright: #52B788;
   --accent-bronze: #B98B4E;  /* warm gold/tan - primary CTA accent */
   --text: #E2E8F0;           /* off-white/cream, not pure white - less glare */
-  --text-muted: #92A399;
+  --text-muted: #A3B7AC;     /* brightened from #92A399 - readability audit: too dim on dark bg */
   --border: rgba(82, 183, 136, 0.15); /* subtle glowing edge, not a hard line */
 
   /* Status pill colors: muted background + soft (not saturated) text */
@@ -60,12 +60,23 @@
   --accent-a9: var(--accent-moss) !important;
 
   font-family: var(--font-body);
+  font-size: 16px;
   color: var(--text);
 }
 
 body {
   background: var(--bg);
   color: var(--text);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+/* Readability audit: draft/compliance text areas are the thing she reads and edits
+   most - make sure they're never smaller/tighter than comfortable body text. */
+.rt-TextAreaInput textarea,
+.rt-TextAreaInput {
+  font-size: 1rem !important;
+  line-height: 1.6 !important;
 }
 
 /* Serif restricted to real headings only - everything else (buttons, labels,

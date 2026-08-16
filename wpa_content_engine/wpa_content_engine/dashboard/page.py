@@ -4,6 +4,8 @@ import reflex as rx
 import reflex_local_auth
 
 from wpa_content_engine.dashboard.components import (
+    email_settings_section,
+    history_section,
     quick_actions_section,
     review_queue_section,
     stats_panel,
@@ -60,9 +62,11 @@ def dashboard_page() -> rx.Component:
             rx.vstack(
                 stats_panel(),
                 quick_actions_section(),
+                email_settings_section(),
                 upload_box(),
                 review_queue_section(),
                 topic_bank_section(),
+                history_section(),
                 spacing="6",
                 width="100%",
                 padding_bottom="3rem",

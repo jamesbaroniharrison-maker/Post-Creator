@@ -4,6 +4,7 @@ import reflex as rx
 
 from wpa_content_engine.dashboard.state import (
     DISPLAY_DAYS,
+    HISTORY_WEEKS_LIMIT,
     POST_TYPES,
     REJECTION_REASONS,
     TOPIC_CATEGORIES,
@@ -265,29 +266,40 @@ def post_card(post: PostView) -> rx.Component:
     )
 
 
-def day_column(day: str) -> rx.Component:
-    return rx.vstack(
-        rx.heading(day, size="3"),
-        rx.foreach(DashboardState.posts_by_day[day], post_card),
-        spacing="3",
-        align="start",
-        width="100%",
-        min_width="320px",
+def day_section(day: str) -> rx.Component:
+    """One day's worth of drafts, full width, stacked vertically underneath its own
+    heading - replaces the old side-by-side scrolling day columns (too cramped to
+    read, needed horizontal scrolling to see other days)."""
+    posts = DashboardState.posts_by_day[day]
+    return rx.cond(
+        posts.length() > 0,
+        rx.vstack(
+            rx.hstack(
+                rx.heading(day, size="4"),
+                rx.badge(posts.length(), variant="soft", color_scheme="bronze"),
+                spacing="2",
+                align="center",
+            ),
+            rx.vstack(rx.foreach(posts, post_card), spacing="4", width="100%"),
+            spacing="3",
+            width="100%",
+            padding_bottom="1rem",
+        ),
+        rx.fragment(),
     )
 
 
 def review_queue_section() -> rx.Component:
     return rx.vstack(
         rx.heading("This week's drafts", size="5"),
-        rx.scroll_area(
-            rx.hstack(
-                *[day_column(day) for day in DISPLAY_DAYS],
-                spacing="4",
-                align="start",
+        rx.cond(
+            DashboardState.posts.length() > 0,
+            rx.vstack(
+                *[day_section(day) for day in DISPLAY_DAYS],
+                spacing="5",
+                width="100%",
             ),
-            type="auto",
-            scrollbars="horizontal",
-            width="100%",
+            rx.text("Nothing waiting for review right now.", size="2", class_name="hud-muted"),
         ),
         spacing="3",
         width="100%",
@@ -329,6 +341,65 @@ def topic_bank_section() -> rx.Component:
             DashboardState.bank_rows.length() > 0,
             rx.vstack(rx.foreach(DashboardState.bank_rows, bank_row_card), spacing="2", width="100%"),
             rx.text("Nothing banked right now.", size="2", class_name="hud-muted"),
+        ),
+        spacing="3",
+        width="100%",
+    )
+
+
+def history_row(post: PostView) -> rx.Component:
+    return rx.hstack(
+        status_pill(post.status),
+        rx.badge(post.post_type, variant="outline", size="1"),
+        rx.text(post.created_at_str, size="1", class_name="hud-muted", min_width="3.5rem"),
+        rx.text(
+            post.draft_text,
+            size="2",
+            white_space="nowrap",
+            overflow="hidden",
+            text_overflow="ellipsis",
+            flex="1",
+        ),
+        rx.button(
+            "Reuse as new post",
+            size="1",
+            on_click=DashboardState.reuse_as_new_topic(post.id),
+            **SECONDARY_CTA,
+        ),
+        width="100%",
+        align="center",
+        spacing="3",
+        padding="0.6rem 0",
+        border_bottom="1px solid var(--border)",
+    )
+
+
+def history_week_group(week_entry: rx.Var) -> rx.Component:
+    return rx.vstack(
+        rx.text(week_entry[0], size="2", weight="medium", class_name="hud-mono hud-muted"),
+        rx.vstack(rx.foreach(week_entry[1], history_row), spacing="0", width="100%"),
+        spacing="2",
+        width="100%",
+    )
+
+
+def history_section() -> rx.Component:
+    return rx.vstack(
+        rx.heading("Past weeks", size="5"),
+        rx.text(
+            f"Everything from the last {HISTORY_WEEKS_LIMIT} weeks, whatever happened to "
+            "it. Spot a thin week? Click \"Reuse as new post\" to line up a catch-up draft.",
+            size="2",
+            class_name="hud-muted",
+        ),
+        rx.cond(
+            DashboardState.history_by_week.length() > 0,
+            rx.vstack(
+                rx.foreach(DashboardState.history_by_week, history_week_group),
+                spacing="5",
+                width="100%",
+            ),
+            rx.text("No history yet.", size="2", class_name="hud-muted"),
         ),
         spacing="3",
         width="100%",
@@ -454,6 +525,42 @@ def quick_actions_section() -> rx.Component:
                 columns=rx.breakpoints(initial="1", md="3"),
                 spacing="4",
                 width="100%",
+            ),
+            spacing="3",
+            width="100%",
+        ),
+        width="100%",
+    )
+
+
+def email_settings_section() -> rx.Component:
+    return rx.card(
+        rx.vstack(
+            rx.heading("Email reminders", size="5"),
+            rx.text(
+                "A weekly nudge to send in a personal story, and a digest of the "
+                "week's posts every Sunday around midday. Both go to the same address.",
+                size="2",
+                class_name="hud-muted",
+            ),
+            rx.hstack(
+                rx.input(
+                    value=DashboardState.email_recipient,
+                    on_change=DashboardState.set_email_recipient,
+                    placeholder="her email address",
+                    size="2",
+                    width="100%",
+                ),
+                rx.select(
+                    WEEKDAYS,
+                    value=DashboardState.email_reminder_day,
+                    on_change=DashboardState.set_email_reminder_day,
+                    size="2",
+                ),
+                rx.button("Save", on_click=DashboardState.save_email_settings_click, size="2", **SECONDARY_CTA),
+                spacing="2",
+                width="100%",
+                align="center",
             ),
             spacing="3",
             width="100%",

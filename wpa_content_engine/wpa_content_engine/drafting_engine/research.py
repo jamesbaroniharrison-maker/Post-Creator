@@ -11,6 +11,8 @@ import dotenv
 import httpx
 import pydantic
 
+from wpa_content_engine.usage_tracking import record_tavily_call, tavily_quota_available
+
 # Reading os.environ directly (rather than via `from rxconfig import config`) means
 # this module can't rely on rxconfig's side-effecting load_dotenv() having already run -
 # call it here too so this works standalone regardless of import order.
@@ -82,6 +84,8 @@ def research_topic(topic: str, max_results: int = 5) -> ResearchResult:
     api_key = os.environ.get("TAVILY_API_KEY")
     if not api_key:
         return ResearchResult(topic=topic, status="unavailable")
+    if not tavily_quota_available():
+        return ResearchResult(topic=topic, status="quota_exceeded")
 
     try:
         response = httpx.post(
@@ -95,6 +99,7 @@ def research_topic(topic: str, max_results: int = 5) -> ResearchResult:
             timeout=30,
         )
         response.raise_for_status()
+        record_tavily_call()
     except httpx.HTTPError:
         return ResearchResult(topic=topic, status="unavailable")
 

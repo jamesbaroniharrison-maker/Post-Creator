@@ -50,6 +50,14 @@ QUICK ACTIONS
       be included the next time the research runs, then it clears
       itself automatically.
 
+EMAIL REMINDERS
+  Set your email address here and pick which day of the week you'd
+  like a reminder to send in a personal story. Once a week you'll
+  also get an email on Sunday around midday listing everything lined
+  up for the week ahead. Type your email, pick a day, click "Save".
+  (These emails won't actually send until James has finished setting
+  up the account they come from.)
+
 WEEKLY INPUT
   This is for your own material - photos, voice notes, or just a
   quick typed note about something on your mind. Pick a post type,
@@ -59,7 +67,8 @@ WEEKLY INPUT
 
 THIS WEEK'S DRAFTS
   Every draft waiting for your attention, grouped by the day it's
-  suggested for. For each one you can:
+  suggested for (a day is only shown if there's something in it).
+  For each one you can:
     - Edit the text directly - just click into the box and type.
       It saves automatically when you click away.
     - Add or remove hashtags and tags - type into the small box and
@@ -81,6 +90,13 @@ TOPIC BANK
   Ideas the system has already found and scored, that haven't turned
   into a draft yet. Click "Generate draft" on any of them to turn it
   into a real post.
+
+PAST WEEKS
+  Everything from the last 6 weeks, whatever happened to it -
+  published, rejected, or just never got to. If you spot a week that
+  looks thin, click "Reuse as new post" on anything in there to copy
+  it into Quick Actions, where you can tweak it and generate a fresh
+  draft for whichever day suits.
 
 CLOSING THE APP
 ---------------------------------------------------------------------

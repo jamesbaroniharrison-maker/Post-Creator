@@ -286,11 +286,72 @@ so there's something live to click through when checked in an actual browser.
   live: a query for "UK employee benefits workplace wellbeing news" correctly surfaced
   real `employeebenefits.co.uk` results that wouldn't have matched the old domain list.
 
+**Real bug found during quota verification**: `gemini-3.7-flash`'s free tier caps at
+**20 requests/day** - confirmed via a live 429 after exactly ~20 calls
+(`generate_content_free_tier_requests` limit). This is nowhere near enough for daily
+scoring at 14-query volume (30-70 scoring calls/day) - every call past the 20th was
+silently falling back to `tier="discard"` via the existing broad exception handling,
+meaning some of that day's earlier real research runs likely mis-scored genuinely good
+findings as discard, not because they were low quality. Switched `scorer.py` and
+`capture/caption.py` to `gemini-flash-lite-latest` (configurable via `GEMINI_MODEL` in
+`.env`) - stress-tested with 25 rapid calls, zero failures, well past where 3.7-flash
+broke. Also confirmed multimodal image input still works on the lite model before
+switching `caption.py` over too.
+
+**Recency-aware scoring** (request: prioritize recent, but accept older-if-still-valid):
+`scorer.py` now receives the article's real `published_date` and today's date in the
+prompt - previously it had neither, so "current vs stale" was being guessed purely from
+content phrasing. Tier definitions rewritten so "high" explicitly allows up to ~1 week
+old (or older if still fully valid/timely), "mid" covers 1-4 weeks, and discard is
+reserved for genuinely off-topic/stale content, not just non-same-day. `discovery.py`'s
+search window widened from 1 to 3 days to match. Verified live: three real Aug 2026 NHS
+stories all correctly scored "high" with real per-article summaries.
+
+**Tavily usage guard** (request: "check it won't overuse usage"): confirmed Tavily's
+free tier is 1,000 basic-search credits/month; the 14-query daily cron uses ~420/month,
+comfortable on its own, but repeated manual "Run research now" testing adds on top
+fast. New `usage_tracking.py` tracks Tavily calls per calendar month
+(`ApiUsageCounter` table) and both call sites (`drafting_engine/research.py`,
+`research_cron/discovery.py`) now check a 900/month safety cap before searching,
+leaving headroom under the real 1,000 limit rather than finding out mid-month via a
+hard failure.
+
+**Weekly-drafts layout redesign** (request: "hard to read and feels clunky"): replaced
+the side-by-side horizontal-scrolling day columns (cramped 320px width, needed
+scrolling to see other days) with a full-width vertical stack - one day section at a
+time, top to bottom, empty days hidden entirely instead of showing empty headers.
+
+**Readability pass** (request: "all text needs to be easy to read"): base font size set
+explicitly to 16px (was relying on Radix defaults), muted text brightened from `#92A399`
+to `#A3B7AC` (audit: too dim against the dark surfaces to read comfortably), draft/
+compliance textareas forced to 1rem with 1.6 line-height regardless of Radix's own
+size scaling.
+
+**"Past weeks" / history view** (request: browse back and line up catch-up posts for a
+thin week): new dashboard section showing everything from the last 6 weeks, any status,
+grouped by week. Each row has "Reuse as new post," which copies that post's text into
+the Quick Actions topic field so she can retarget it at a specific day and regenerate.
+
+**Email reminders** (request, not in original spec): weekly personal-story nudge (her
+chosen day, editable from the dashboard's "Email reminders" card, no need to touch
+Windows Task Scheduler to change it) plus a Sunday-midday digest of the week's lined-up
+posts. Lives in `email_engine/`: `send.py` (plain SMTP, Gmail app password by default),
+`reminder.py`/`digest.py` (each idempotent per week via `job_runs`, gated internally by
+day-of-week rather than relying on the Windows trigger time being exact), `settings.py`
+(single-row `EmailSettings`: recipient + reminder day). Both jobs degrade to a clean
+"skipped, not configured" rather than crashing when `EMAIL_ADDRESS`/`EMAIL_APP_PASSWORD`
+are blank - tested for real (no credentials configured yet, confirmed correct skip
+behavior, not a silent failure). `scripts/register_email_tasks.ps1` registers both as
+daily-triggered Scheduled Tasks (not registered yet - same "not going live until asked"
+posture as the research cron's own task). **Still waiting on real Gmail credentials**
+from the user before this can actually send anything.
+
 ## Overall status
 
 All 7 levels have working code, each tested against real APIs/data as it was built
-(not just made to compile). Two things remain before this is genuinely "done, not just
-built": (1) level 7's UI needs actual eyes-on browser verification, per above: (2) the
-level 5 daily research cron's Windows Scheduled Task is written
-(`scripts/register_scheduled_task.ps1`) but not registered - it won't run
-automatically until that script is executed.
+(not just made to compile). Remaining before this is genuinely "done, not just built":
+(1) level 7's UI needs actual eyes-on browser verification; (2) neither the research
+cron's nor the email jobs' Windows Scheduled Tasks are registered yet
+(`scripts/register_scheduled_task.ps1`, `scripts/register_email_tasks.ps1` - both
+written and ready); (3) email sending is inert until `EMAIL_ADDRESS`/
+`EMAIL_APP_PASSWORD` are filled in `.env` with real Gmail app-password credentials.

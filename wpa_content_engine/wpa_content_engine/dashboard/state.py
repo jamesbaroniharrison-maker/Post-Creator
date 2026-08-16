@@ -7,7 +7,7 @@ stats update) has to run end to end without touching code.
 
 import json
 import pathlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pydantic
 import reflex as rx
@@ -20,6 +20,7 @@ from wpa_content_engine.drafting_engine.pipeline import (
     generate_draft_with_research,
 )
 from wpa_content_engine.drafting_engine.research import ResearchFinding, ResearchResult
+from wpa_content_engine.email_engine.settings import get_email_settings, save_email_settings
 from wpa_content_engine.models import ForcedTopic, Post, TopicBank
 from wpa_content_engine.research_cron.pipeline import run_daily_research
 
@@ -30,6 +31,7 @@ POST_TYPES = ["industry_insight", "company_update", "personal_reflection"]
 TOPIC_CATEGORIES = ["industry", "company"]
 CATEGORY_TO_POST_TYPE = {"industry": "industry_insight", "company": "company_update"}
 ACTIVE_STATUSES = ["drafted", "approved", "published"]
+HISTORY_WEEKS_LIMIT = 6
 
 
 class PostView(pydantic.BaseModel):
@@ -47,6 +49,8 @@ class PostView(pydantic.BaseModel):
     new_tag_input: str = ""
     likes_input: str = ""
     comments_input: str = ""
+    week_label: str = ""
+    created_at_str: str = ""
 
 
 class BankView(pydantic.BaseModel):
@@ -64,6 +68,11 @@ class ForcedTopicView(pydantic.BaseModel):
     category: str
 
 
+def _week_label(dt: datetime) -> str:
+    monday = dt - timedelta(days=dt.weekday())
+    return f"Week of {monday.strftime('%d %b %Y')}"
+
+
 def _row_to_view(p: Post) -> PostView:
     return PostView(
         id=p.id,
@@ -78,6 +87,8 @@ def _row_to_view(p: Post) -> PostView:
         rejection_reason=p.rejection_reason or "",
         likes_input=str(p.likes) if p.likes is not None else "",
         comments_input=str(p.comments) if p.comments is not None else "",
+        week_label=_week_label(p.created_at),
+        created_at_str=p.created_at.strftime("%d %b"),
     )
 
 
@@ -85,6 +96,7 @@ class DashboardState(rx.State):
     posts: list[PostView] = []
     bank_rows: list[BankView] = []
     forced_topics: list[ForcedTopicView] = []
+    history_posts: list[PostView] = []
     stats: dict[str, str] = {}
 
     # Quick actions
@@ -98,6 +110,10 @@ class DashboardState(rx.State):
     status_message: str = ""
     is_busy: bool = False
 
+    # Email settings
+    email_recipient: str = ""
+    email_reminder_day: str = "Friday"
+
     # ---- loading ----
 
     @rx.event
@@ -108,6 +124,8 @@ class DashboardState(rx.State):
             self._reload_posts()
             self._reload_bank()
             self._reload_forced_topics()
+            self._reload_history()
+            self._reload_email_settings()
             self._reload_stats()
         except Exception as exc:  # noqa: BLE001
             self.status_message = (
@@ -158,6 +176,56 @@ class DashboardState(rx.State):
         self.forced_topics = [
             ForcedTopicView(id=r.id, topic=r.topic, category=r.category) for r in rows
         ]
+
+    def _reload_history(self):
+        """Everything from the last few weeks, regardless of status - lets her look
+        back and decide to line up a catch-up post for a thin week (request: "ability
+        to look over the last few weeks... get them lined up")."""
+        cutoff = datetime.now(timezone.utc) - timedelta(weeks=HISTORY_WEEKS_LIMIT)
+        with rx.session(url=config.db_url) as session:
+            rows = session.exec(
+                sqlmodel.select(Post)
+                .where(sqlmodel.col(Post.created_at) >= cutoff)
+                .order_by(sqlmodel.col(Post.created_at).desc())
+            ).all()
+        self.history_posts = [_row_to_view(p) for p in rows]
+
+    @rx.var
+    def history_by_week(self) -> list[tuple[str, list[PostView]]]:
+        weeks: dict[str, list[PostView]] = {}
+        for p in self.history_posts:
+            weeks.setdefault(p.week_label, []).append(p)
+        return list(weeks.items())
+
+    def _reload_email_settings(self):
+        settings = get_email_settings()
+        if settings:
+            self.email_recipient = settings.recipient_email
+            self.email_reminder_day = settings.reminder_day
+
+    @rx.event
+    def set_email_recipient(self, value: str):
+        self.email_recipient = value
+
+    @rx.event
+    def set_email_reminder_day(self, value: str):
+        self.email_reminder_day = value
+
+    @rx.event
+    def save_email_settings_click(self):
+        save_email_settings(self.email_recipient, self.email_reminder_day)
+        self.status_message = "Email settings saved."
+
+    @rx.event
+    def reuse_as_new_topic(self, post_id: int):
+        post = next((p for p in self.history_posts if p.id == post_id), None)
+        if not post:
+            return
+        self.quick_topic = post.draft_text[:200]
+        self.status_message = (
+            "Copied into 'Generate a post now' below - adjust the topic and post type, "
+            "then click Research + draft."
+        )
 
     def _reload_stats(self):
         with rx.session(url=config.db_url) as session:
