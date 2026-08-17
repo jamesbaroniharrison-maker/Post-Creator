@@ -45,6 +45,10 @@ class Post(rx.Model, table=True):
     likes: int | None = None
     comments: int | None = None
     engagement_updated_at: datetime | None = None
+    # Monday-of-week date string (e.g. "2026-08-17"), auto-assigned to approved posts
+    # by scheduling.py so a thin week doesn't get overloaded and an over-full one
+    # spills into the following week automatically. None until allocated.
+    scheduled_week: str | None = None
 
 
 class VoiceSample(rx.Model, table=True):
@@ -95,11 +99,15 @@ class ApiUsageCounter(rx.Model, table=True):
 
 class EmailSettings(rx.Model, table=True):
     """Single-row settings for the two scheduled email jobs (weekly personal-story
-    reminder, Sunday weekly-post digest) - requested after the original spec, not in
-    Â§9. Sending is inert until SMTP credentials exist in .env (see email_engine/).
+    reminder, weekly post digest) - requested after the original spec, not in Â§9.
+    Both day AND time are independently configurable per job (request: "fully
+    customizable"). Sending is inert until SMTP credentials exist in .env.
     """
 
     recipient_email: str
     reminder_day: str = "Friday"  # weekday she's most likely to actually send a story
+    reminder_time: str = "09:00"  # 24h "HH:MM"
     reminder_enabled: bool = True
+    digest_day: str = "Sunday"
+    digest_time: str = "12:00"
     digest_enabled: bool = True

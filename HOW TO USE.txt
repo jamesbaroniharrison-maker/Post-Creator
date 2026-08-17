@@ -27,64 +27,53 @@ Password: (given to you separately - keep it somewhere safe)
 If you forget the password, contact James - it can be reset, but
 there's no "forgot password" link, since this only has one user.
 
-USING THE DASHBOARD
+THE PAGES
 ---------------------------------------------------------------------
-When you log in you'll see, from top to bottom:
+Along the top of every page is a menu: Home, Review, Accepted,
+Rejected, Topic Bank, Past Weeks, Settings. Click any of them to jump
+straight there.
 
-STATS
-  A quick scoreboard - how many posts are drafted, approved,
-  published, or rejected, and how quickly you're getting through
-  them.
+HOME
+  A quick scoreboard (how many posts are drafted, approved, published,
+  rejected) and the "Weekly input" box for your own material - photos,
+  voice notes, or just a quick typed note about something on your
+  mind. Pick a post type, either type a note and click "Draft from
+  note", or drag a photo/audio file in and click "Upload & draft".
+  Videos aren't supported - only photos and audio.
 
-QUICK ACTIONS
-  Three shortcuts:
-    - "Generate a post now" - type in a topic, pick a post type, and
-      click "Research + draft". It'll research the topic and write a
-      draft post in your voice, usually within a minute.
-    - "Run research now" - normally the system checks for news once
-      a day by itself. This button makes it check right now instead
-      of waiting.
-    - "Force next search topics" - if there's something specific you
-      want it to look for next time it checks the news (e.g. "WPA
-      dental cover"), type it in here and click "Queue topic". It'll
-      be included the next time the research runs, then it clears
-      itself automatically.
-
-EMAIL REMINDERS
-  Set your email address here and pick which day of the week you'd
-  like a reminder to send in a personal story. Once a week you'll
-  also get an email on Sunday around midday listing everything lined
-  up for the week ahead. Type your email, pick a day, click "Save".
-  (These emails won't actually send until James has finished setting
-  up the account they come from.)
-
-WEEKLY INPUT
-  This is for your own material - photos, voice notes, or just a
-  quick typed note about something on your mind. Pick a post type,
-  either type a note and click "Draft from note", or drag a photo/
-  audio file into the box and click "Upload & draft". Videos aren't
-  supported - only photos and audio.
-
-THIS WEEK'S DRAFTS
-  Every draft waiting for your attention, grouped by the day it's
-  suggested for (a day is only shown if there's something in it).
-  For each one you can:
-    - Edit the text directly - just click into the box and type.
-      It saves automatically when you click away.
+REVIEW
+  Every draft waiting for a decision, grouped by the day it's
+  suggested for. For each one you can:
+    - Edit the text directly - click into the box and type. It saves
+      automatically when you click away.
     - Add or remove hashtags and tags - type into the small box and
       click "Add", or click the x on an existing one to remove it.
     - Change the suggested day using the dropdown.
-    - Click APPROVE if you're happy with it, or REJECT and pick a
-      reason if you're not.
-    - Once approved, click "Copy text" to copy the post, paste it
-      into LinkedIn yourself, and once it's actually posted, click
-      "Mark published".
-    - Once published, you can come back later and type in the likes
-      and comments it got, for your own records.
+    - Click ACCEPT if you're happy with it.
+    - Click REDRAFT if the topic's right but you want the system to
+      have another go at writing it - the old version moves to
+      Rejected and a fresh one appears here.
+    - Click REJECT and pick a reason if you don't want it at all.
 
   Nothing is EVER posted to LinkedIn automatically. You always copy
-  and paste it in yourself. This system never has the ability to
-  post on your behalf.
+  and paste it in yourself. This system never has the ability to post
+  on your behalf.
+
+ACCEPTED
+  Everything you've accepted, automatically sorted into "This week"
+  and "Next week" (up to 4 posts a week - if you accept more than
+  that, the extras roll into the following week by themselves, no
+  need to manage this yourself). For each one:
+    - Click "Copy text" to copy the post, then paste it into LinkedIn
+      yourself.
+    - Once it's actually posted, click "Mark published".
+    - Once published, come back later and type in the likes and
+      comments it got, for your own records.
+
+REJECTED
+  Only the 5 most recent rejected posts are kept - anything older is
+  deleted automatically, so this list never gets cluttered. You can
+  still click "Reuse as new post" on any of them to have another go.
 
 TOPIC BANK
   Ideas the system has already found and scored, that haven't turned
@@ -95,8 +84,29 @@ PAST WEEKS
   Everything from the last 6 weeks, whatever happened to it -
   published, rejected, or just never got to. If you spot a week that
   looks thin, click "Reuse as new post" on anything in there to copy
-  it into Quick Actions, where you can tweak it and generate a fresh
-  draft for whichever day suits.
+  it into Settings' Quick Actions, where you can tweak it and generate
+  a fresh draft.
+
+SETTINGS
+  Quick Actions:
+    - "Generate a post now" - type in a topic, pick a post type, and
+      click "Research + draft". It'll research the topic and write a
+      draft post in your voice, usually within a minute.
+    - "Run research now" - normally the system checks for news once a
+      day by itself. This button makes it check right now instead of
+      waiting.
+    - "Force next search topics" - if there's something specific you
+      want it to look for next time it checks the news, type it in
+      and click "Queue topic". It's included next time the research
+      runs, then clears itself automatically.
+
+  Email Reminders - fully adjustable, day and time, independently for
+  each:
+    - Personal story reminder - a nudge to send in a story.
+    - Weekly post digest - a summary of everything lined up that week.
+    Set your email address, pick a day and time for each, click
+    "Save". (These won't actually send until James finishes setting
+    up the account they come from.)
 
 CLOSING THE APP
 ---------------------------------------------------------------------

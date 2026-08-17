@@ -23,6 +23,7 @@ from wpa_content_engine.drafting_engine.research import ResearchFinding, Researc
 from wpa_content_engine.email_engine.settings import get_email_settings, save_email_settings
 from wpa_content_engine.models import ForcedTopic, Post, TopicBank
 from wpa_content_engine.research_cron.pipeline import run_daily_research
+from wpa_content_engine.scheduling import allocate_accepted_posts, current_week_label, prune_rejected_posts
 
 REJECTION_REASONS = ["not relevant", "wrong tone", "already covered"]
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -30,14 +31,21 @@ DISPLAY_DAYS = [*WEEKDAYS, "Unscheduled"]
 POST_TYPES = ["industry_insight", "company_update", "personal_reflection"]
 TOPIC_CATEGORIES = ["industry", "company"]
 CATEGORY_TO_POST_TYPE = {"industry": "industry_insight", "company": "company_update"}
-ACTIVE_STATUSES = ["drafted", "approved", "published"]
 HISTORY_WEEKS_LIMIT = 6
+
+
+def humanize(value: str) -> str:
+    """'personal_reflection' -> 'Personal Reflection' - display only, never touches
+    the stored value (request: raw snake_case showing up in the UI looked wrong)."""
+    return value.replace("_", " ").title() if value else value
 
 
 class PostView(pydantic.BaseModel):
     id: int
     post_type: str
+    post_type_label: str = ""
     status: str
+    status_label: str = ""
     draft_text: str
     hashtags: list[str] = []
     tags: list[str] = []
@@ -51,6 +59,7 @@ class PostView(pydantic.BaseModel):
     comments_input: str = ""
     week_label: str = ""
     created_at_str: str = ""
+    scheduled_week: str = ""
 
 
 class BankView(pydantic.BaseModel):
@@ -59,13 +68,16 @@ class BankView(pydantic.BaseModel):
     source_title: str
     source_url: str
     tier: str
+    tier_label: str = ""
     category: str
+    category_label: str = ""
 
 
 class ForcedTopicView(pydantic.BaseModel):
     id: int
     topic: str
     category: str
+    category_label: str = ""
 
 
 def _week_label(dt: datetime) -> str:
@@ -77,7 +89,9 @@ def _row_to_view(p: Post) -> PostView:
     return PostView(
         id=p.id,
         post_type=p.post_type,
+        post_type_label=humanize(p.post_type),
         status=p.status,
+        status_label=humanize(p.status),
         draft_text=p.draft_text,
         hashtags=json.loads(p.hashtags or "[]"),
         tags=json.loads(p.tags or "[]"),
@@ -89,11 +103,14 @@ def _row_to_view(p: Post) -> PostView:
         comments_input=str(p.comments) if p.comments is not None else "",
         week_label=_week_label(p.created_at),
         created_at_str=p.created_at.strftime("%d %b"),
+        scheduled_week=p.scheduled_week or "",
     )
 
 
 class DashboardState(rx.State):
-    posts: list[PostView] = []
+    posts: list[PostView] = []  # review queue: status == "drafted" only
+    accepted_posts: list[PostView] = []  # approved + published
+    rejected_posts: list[PostView] = []  # last 5 only, per scheduling.REJECTED_KEEP
     bank_rows: list[BankView] = []
     forced_topics: list[ForcedTopicView] = []
     history_posts: list[PostView] = []
@@ -110,9 +127,12 @@ class DashboardState(rx.State):
     status_message: str = ""
     is_busy: bool = False
 
-    # Email settings
+    # Email settings - both jobs fully independent on day AND time
     email_recipient: str = ""
     email_reminder_day: str = "Friday"
+    email_reminder_time: str = "09:00"
+    email_digest_day: str = "Sunday"
+    email_digest_time: str = "12:00"
 
     # ---- loading ----
 
@@ -121,7 +141,10 @@ class DashboardState(rx.State):
         """Runs on every page load. Never let a single bad reload blank the whole
         page for someone with no way to debug it - fail into a visible message."""
         try:
+            allocate_accepted_posts()
             self._reload_posts()
+            self._reload_accepted()
+            self._reload_rejected()
             self._reload_bank()
             self._reload_forced_topics()
             self._reload_history()
@@ -141,10 +164,46 @@ class DashboardState(rx.State):
         with rx.session(url=config.db_url) as session:
             rows = session.exec(
                 sqlmodel.select(Post)
-                .where(sqlmodel.col(Post.status).in_(ACTIVE_STATUSES))
+                .where(Post.status == "drafted")
                 .order_by(sqlmodel.col(Post.created_at).desc())
             ).all()
         self.posts = [_row_to_view(p) for p in rows]
+
+    def _reload_accepted(self):
+        with rx.session(url=config.db_url) as session:
+            rows = session.exec(
+                sqlmodel.select(Post)
+                .where(sqlmodel.col(Post.status).in_(["approved", "published"]))
+                .order_by(sqlmodel.col(Post.scheduled_week).asc(), sqlmodel.col(Post.created_at).asc())
+            ).all()
+        self.accepted_posts = [_row_to_view(p) for p in rows]
+
+    def _reload_rejected(self):
+        with rx.session(url=config.db_url) as session:
+            rows = session.exec(
+                sqlmodel.select(Post)
+                .where(Post.status == "rejected")
+                .order_by(sqlmodel.col(Post.reviewed_at).desc())
+            ).all()
+        self.rejected_posts = [_row_to_view(p) for p in rows]
+
+    @rx.var
+    def accepted_by_week(self) -> list[tuple[str, list[PostView]]]:
+        current = current_week_label()
+        groups: dict[str, list[PostView]] = {}
+        for p in self.accepted_posts:
+            groups.setdefault(p.scheduled_week, []).append(p)
+        ordered = sorted(groups.items(), key=lambda kv: kv[0])
+        labeled = []
+        for i, (week, posts) in enumerate(ordered):
+            if week == current:
+                label = f"This week (starting {week})"
+            elif i > 0 and ordered[i - 1][0] == current:
+                label = f"Next week (starting {week})"
+            else:
+                label = f"Week starting {week}"
+            labeled.append((label, posts))
+        return labeled
 
     def _reload_bank(self):
         with rx.session(url=config.db_url) as session:
@@ -161,7 +220,9 @@ class DashboardState(rx.State):
                 source_title=r.source_title,
                 source_url=r.source_url,
                 tier=r.tier,
+                tier_label=humanize(r.tier),
                 category=r.category,
+                category_label=humanize(r.category),
             )
             for r in rows
         ]
@@ -174,7 +235,8 @@ class DashboardState(rx.State):
                 .order_by(sqlmodel.col(ForcedTopic.created_at).asc())
             ).all()
         self.forced_topics = [
-            ForcedTopicView(id=r.id, topic=r.topic, category=r.category) for r in rows
+            ForcedTopicView(id=r.id, topic=r.topic, category=r.category, category_label=humanize(r.category))
+            for r in rows
         ]
 
     def _reload_history(self):
@@ -202,6 +264,9 @@ class DashboardState(rx.State):
         if settings:
             self.email_recipient = settings.recipient_email
             self.email_reminder_day = settings.reminder_day
+            self.email_reminder_time = settings.reminder_time
+            self.email_digest_day = settings.digest_day
+            self.email_digest_time = settings.digest_time
 
     @rx.event
     def set_email_recipient(self, value: str):
@@ -212,8 +277,26 @@ class DashboardState(rx.State):
         self.email_reminder_day = value
 
     @rx.event
+    def set_email_reminder_time(self, value: str):
+        self.email_reminder_time = value
+
+    @rx.event
+    def set_email_digest_day(self, value: str):
+        self.email_digest_day = value
+
+    @rx.event
+    def set_email_digest_time(self, value: str):
+        self.email_digest_time = value
+
+    @rx.event
     def save_email_settings_click(self):
-        save_email_settings(self.email_recipient, self.email_reminder_day)
+        save_email_settings(
+            self.email_recipient,
+            self.email_reminder_day,
+            self.email_reminder_time,
+            self.email_digest_day,
+            self.email_digest_time,
+        )
         self.status_message = "Email settings saved."
 
     @rx.event
@@ -271,9 +354,10 @@ class DashboardState(rx.State):
         return buckets
 
     def _find_post(self, post_id: int) -> PostView | None:
-        for p in self.posts:
-            if p.id == post_id:
-                return p
+        for collection in (self.posts, self.accepted_posts, self.rejected_posts, self.history_posts):
+            for p in collection:
+                if p.id == post_id:
+                    return p
         return None
 
     def _persist(self, post_id: int, **fields) -> None:
@@ -367,27 +451,73 @@ class DashboardState(rx.State):
             post.tags = [t for t in post.tags if t != tag]
             self._persist(post_id, tags=json.dumps(post.tags))
 
-    # ---- review actions (spec Â§3d: approve/reject/publish, one-tap rejection chips) ----
+    # ---- review actions: Accept / Redraft / Reject (request: replace the old
+    # approve-or-reject-only flow with a third "Redraft" option) ----
 
     @rx.event
-    def approve(self, post_id: int):
+    def accept(self, post_id: int):
         now = datetime.now(timezone.utc)
         self._persist(post_id, status="approved", reviewed_at=now)
+        allocate_accepted_posts()  # request: auto-assign into this/next week
         self._reload_posts()
+        self._reload_accepted()
         self._reload_stats()
 
     @rx.event
     def reject(self, post_id: int, reason: str):
         now = datetime.now(timezone.utc)
         self._persist(post_id, status="rejected", reviewed_at=now, rejection_reason=reason)
+        prune_rejected_posts()  # request: only keep the last 5
         self._reload_posts()
+        self._reload_rejected()
         self._reload_stats()
+
+    @rx.event(background=True)
+    async def redraft(self, post_id: int):
+        """Generates a fresh draft from the same material and retires the old one -
+        request: Review needs a third option beyond just accept/reject."""
+        async with self:
+            self.is_busy = True
+            self.status_message = "Redrafting..."
+
+        with rx.session(url=config.db_url) as session:
+            old = session.get(Post, post_id)
+            if old is None:
+                async with self:
+                    self.is_busy = False
+                    self.status_message = "That post no longer exists."
+                return
+            topic, post_type, sources_json = old.draft_text, old.post_type, old.sources
+
+        try:
+            findings = [ResearchFinding(**s) for s in json.loads(sources_json or "[]")]
+            research = ResearchResult(topic=topic, status="ok" if findings else "no_results", findings=findings)
+            generate_draft_with_research(topic[:200], post_type, research)
+            now = datetime.now(timezone.utc)
+            with rx.session(url=config.db_url) as session:
+                old = session.get(Post, post_id)
+                old.status = "rejected"
+                old.rejection_reason = "redrafted"
+                old.reviewed_at = now
+                session.add(old)
+                session.commit()
+            prune_rejected_posts()
+            message = "New draft generated - the old version moved to Rejected."
+        except Exception as exc:  # noqa: BLE001
+            message = f"Redraft failed: {exc}"
+
+        async with self:
+            self.is_busy = False
+            self.status_message = message
+            self._reload_posts()
+            self._reload_rejected()
+            self._reload_stats()
 
     @rx.event
     def mark_published(self, post_id: int):
         now = datetime.now(timezone.utc)
         self._persist(post_id, status="published", published_at=now)
-        self._reload_posts()
+        self._reload_accepted()
         self._reload_stats()
 
     @rx.event

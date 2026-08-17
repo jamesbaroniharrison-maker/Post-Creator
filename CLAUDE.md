@@ -346,12 +346,82 @@ daily-triggered Scheduled Tasks (not registered yet - same "not going live until
 posture as the research cron's own task). **Still waiting on real Gmail credentials**
 from the user before this can actually send anything.
 
+**Multi-page restructure** (request: "don't want everything to be on one big page"):
+the single `dashboard/page.py` was split into seven focused pages under
+`dashboard/pages/`, each behind its own route and its own `require_login` wrapper:
+
+| Route | Page | Shows |
+|---|---|---|
+| `/` | Home | Stats overview + weekly-input upload box |
+| `/review` | Review | Drafted posts, grouped by suggested day |
+| `/accepted` | Accepted | Approved/published, grouped by auto-assigned week |
+| `/rejected` | Rejected | Last 5 rejected only |
+| `/topic-bank` | Topic Bank | Unused research findings |
+| `/history` | Past Weeks | Last 6 weeks, any status, reusable as new posts |
+| `/settings` | Settings | Quick actions + email reminder timing |
+
+All seven share one `DashboardState` (normal in Reflex - state isn't tied to a single
+page) and a `page_shell()` wrapper in `components.py` (header, nav bar, status banner,
+`on_mount=load_dashboard`). `components.py` itself was trimmed down to shared
+primitives only (`status_pill`, `chip_list`, `post_editable_body`, three post-card
+variants for review/accepted/rejected); page-specific composition now lives in each
+page file, not one 600-line component module.
+
+**Review flow changed to Accept / Redraft / Reject** (request: a third option beyond
+approve-or-reject): `redraft(post_id)` generates a fresh draft from the same
+topic+sources and retires the old one - as `status="rejected"`,
+`rejection_reason="redrafted"` - rather than adding a new status value across the whole
+schema/UI for what's really just a specific kind of rejection.
+
+**Auto-scheduling** (request: "AI automatically chooses which ones are going into this
+week's lot... too many, puts them for next week"): new `scheduling.py`.
+`allocate_accepted_posts()` gives every unscheduled approved/published post a
+`scheduled_week` (new `Post` column, Monday-of-week date string), filling the current
+week up to a 4-post cap (spec Â§1's 3-4/week) before spilling into the next week, and
+the next, and so on. Runs on every `accept()` and on every dashboard page load, so it's
+always caught up, not something that needs a manual trigger. Tested live: accepting a
+drafted post correctly assigned it `scheduled_week=2026-08-17` (this week's Monday).
+
+**Rejected-post pruning** (request: "only want to save the last five... after that,
+delete them"): `prune_rejected_posts()` runs after every `reject()` (and after every
+`redraft()`, since that's implemented as a rejection) and hard-deletes anything beyond
+the 5 most recent. Tested live.
+
+**Fully configurable email timing** (request: day AND time, independently, for both
+jobs): `EmailSettings` gained `reminder_time`/`digest_day`/`digest_time` (digest was
+previously hardcoded to Sunday). Both `reminder.py` and `digest.py` now check local
+weekday-name AND local hour against the dashboard's settings before sending.
+Consequence: the Task Scheduler trigger needs to fire hourly now, not once a day, for
+an arbitrary time-of-day setting to actually be honoured -
+`scripts/register_email_tasks.ps1` updated accordingly (still not registered).
+
+**Display-label fix** (request: `personal_reflection` showing raw/underscored instead
+of "Personal Reflection"): added a `humanize()` helper (`dashboard/state.py`) and
+`*_label` fields (`post_type_label`, `status_label`, `tier_label`, `category_label`)
+populated server-side in every `_reload_*` method, used everywhere a post
+type/status/tier/category renders in the UI. The underlying stored values are
+untouched - this is purely a display transform.
+
+**Full button audit** (request: "double check every single button... make sure
+everything does what it needs to do"): grepped every `on_click=`, `on_change=`, and
+`on_blur=` across `dashboard/pages/*.py` and `dashboard/components.py`, cross-checked
+each against the actual method list on `DashboardState` - no typos, no dead handlers,
+no orphaned event names left over from the restructure. All 8 routes (7 pages +
+`/login`) compiled clean and returned HTTP 200 on a live check.
+
+**Real environment issue hit while testing this**: Ollama had silently lost all its
+installed models (`ollama list` returned empty - not a code bug, something external
+wiped them, possibly a system event unrelated to this project). Re-pulled `llama3` to
+restore drafting capability; flagging this because if it happens again on her machine,
+`ollama list` returning empty is the tell, and `ollama pull llama3` fixes it.
+
 ## Overall status
 
 All 7 levels have working code, each tested against real APIs/data as it was built
 (not just made to compile). Remaining before this is genuinely "done, not just built":
-(1) level 7's UI needs actual eyes-on browser verification; (2) neither the research
-cron's nor the email jobs' Windows Scheduled Tasks are registered yet
+(1) the restructured multi-page UI needs actual eyes-on browser verification, same
+caveat as before - no browser automation available in this environment; (2) neither
+the research cron's nor the email jobs' Windows Scheduled Tasks are registered yet
 (`scripts/register_scheduled_task.ps1`, `scripts/register_email_tasks.ps1` - both
 written and ready); (3) email sending is inert until `EMAIL_ADDRESS`/
 `EMAIL_APP_PASSWORD` are filled in `.env` with real Gmail app-password credentials.
