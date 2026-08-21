@@ -5,7 +5,13 @@ which ones are going into this week's lot... too many, puts them for next week")
 import reflex as rx
 import reflex_local_auth
 
-from wpa_content_engine.dashboard.components import accepted_post_card, page_shell
+from wpa_content_engine.dashboard.components import (
+    accepted_filter_bar,
+    accepted_post_card,
+    page_shell,
+    planning_calendar,
+    week_selector_bar,
+)
 from wpa_content_engine.dashboard.state import DashboardState
 
 
@@ -22,9 +28,9 @@ def _week_group(entry: rx.Var) -> rx.Component:
 @reflex_local_auth.require_login
 def accepted_page() -> rx.Component:
     body = rx.cond(
-        DashboardState.accepted_posts.length() > 0,
+        DashboardState.accepted_by_week.length() > 0,
         rx.vstack(rx.foreach(DashboardState.accepted_by_week, _week_group), spacing="5", width="100%"),
-        rx.text("Nothing accepted yet.", size="2", class_name="hud-muted"),
+        rx.text("Nothing scheduled for this week yet, at this filter.", size="2", class_name="hud-muted"),
     )
     return page_shell(
         "/accepted",
@@ -35,7 +41,12 @@ def accepted_page() -> rx.Component:
                 size="2",
                 class_name="hud-muted",
             ),
+            week_selector_bar(),
+            accepted_filter_bar(),
             body,
+            rx.divider(),
+            rx.heading("Plan ahead", size="4"),
+            planning_calendar(),
             spacing="4",
             width="100%",
         ),

@@ -30,6 +30,27 @@ def current_week_label() -> str:
     return _week_monday(datetime.now(timezone.utc))
 
 
+def current_week_start() -> datetime:
+    """Monday 00:00 UTC of the current week, as a tz-aware datetime - for filtering
+    `Post.created_at` (also tz-aware UTC) against "this week", e.g. checking whether
+    she's already sent in a personal reflection before nudging her for one."""
+    monday_str = current_week_label()
+    return datetime.strptime(monday_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+
+
+def upcoming_week_mondays(count: int = 4) -> list[str]:
+    """This week's Monday plus the next `count - 1` - the 4-week look-ahead horizon
+    used by the Accepted page's week selector and forward-planning notes."""
+    start = datetime.strptime(current_week_label(), "%Y-%m-%d")
+    return [(start + timedelta(days=7 * i)).strftime("%Y-%m-%d") for i in range(count)]
+
+
+def week_dates(monday: str) -> list[str]:
+    """The 7 calendar dates (YYYY-MM-DD) in the week starting on `monday`."""
+    start = datetime.strptime(monday, "%Y-%m-%d")
+    return [(start + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
+
+
 def allocate_accepted_posts() -> int:
     """Give every unscheduled approved/published post a scheduled_week, filling the
     current week up to WEEKLY_CAP before spilling into the next, and so on. Safe to

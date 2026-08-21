@@ -3,7 +3,14 @@
 import reflex as rx
 import reflex_local_auth
 
-from wpa_content_engine.dashboard.state import REJECTION_REASONS, WEEKDAYS, DashboardState, PostView
+from wpa_content_engine.dashboard.state import (
+    POST_TYPES,
+    REJECTION_REASONS,
+    WEEKDAYS,
+    DashboardState,
+    DayPlanView,
+    PostView,
+)
 
 PRIMARY_CTA = {"color_scheme": "bronze", "variant": "solid"}
 SECONDARY_CTA = {"color_scheme": "bronze", "variant": "outline"}
@@ -77,11 +84,14 @@ def chip_list(
                 value=input_value,
                 on_change=on_input_change,
                 placeholder=placeholder,
-                size="1",
+                size="2",
+                flex="1",
+                min_width="0",
                 on_key_down=lambda k: rx.cond(k == "Enter", on_add, rx.noop()),
             ),
-            rx.button("Add", on_click=on_add, size="1", **SECONDARY_CTA),
+            rx.button("Add", on_click=on_add, size="2", flex_shrink="0", **SECONDARY_CTA),
             spacing="2",
+            width="100%",
         ),
         spacing="2",
         align="start",
@@ -232,23 +242,31 @@ def accepted_post_card(post: PostView) -> rx.Component:
             rx.cond(
                 post.status == "published",
                 rx.hstack(
-                    rx.input(
-                        value=post.likes_input,
-                        on_change=lambda v: DashboardState.set_likes_input(post.id, v),
-                        on_blur=lambda _: DashboardState.save_likes(post.id),
-                        placeholder="likes",
-                        size="2",
-                        width="7rem",
+                    rx.vstack(
+                        rx.text("Likes", size="2", weight="medium", class_name="hud-muted"),
+                        rx.input(
+                            value=post.likes_input,
+                            on_change=lambda v: DashboardState.set_likes_input(post.id, v),
+                            on_blur=lambda _: DashboardState.save_likes(post.id),
+                            placeholder="0",
+                            size="2",
+                            width="9rem",
+                        ),
+                        spacing="1",
                     ),
-                    rx.input(
-                        value=post.comments_input,
-                        on_change=lambda v: DashboardState.set_comments_input(post.id, v),
-                        on_blur=lambda _: DashboardState.save_comments(post.id),
-                        placeholder="comments",
-                        size="2",
-                        width="7rem",
+                    rx.vstack(
+                        rx.text("Comments", size="2", weight="medium", class_name="hud-muted"),
+                        rx.input(
+                            value=post.comments_input,
+                            on_change=lambda v: DashboardState.set_comments_input(post.id, v),
+                            on_blur=lambda _: DashboardState.save_comments(post.id),
+                            placeholder="0",
+                            size="2",
+                            width="9rem",
+                        ),
+                        spacing="1",
                     ),
-                    spacing="2",
+                    spacing="3",
                 ),
                 rx.hstack(
                     rx.button("Copy text", on_click=rx.set_clipboard(post.draft_text), **SECONDARY_CTA),
@@ -259,6 +277,142 @@ def accepted_post_card(post: PostView) -> rx.Component:
             spacing="3",
             width="100%",
         ),
+        width="100%",
+    )
+
+
+def accepted_filter_bar() -> rx.Component:
+    """All / Approved (not yet published) / Published toggle - request: 'a filter for
+    looking at accepted and looking at published ones... don't want to sift through
+    ones that haven't been published yet' when logging likes/comments."""
+    options = [("all", "All"), ("approved", "Accepted, not published"), ("published", "Published")]
+    return rx.hstack(
+        *[
+            rx.button(
+                label,
+                size="2",
+                on_click=DashboardState.set_accepted_status_filter(value),
+                variant=rx.cond(DashboardState.accepted_status_filter == value, "solid", "outline"),
+                color_scheme="bronze",
+            )
+            for value, label in options
+        ],
+        spacing="2",
+        wrap="wrap",
+    )
+
+
+def week_selector_bar() -> rx.Component:
+    """This week / next week / +2 / +3 - request: 'select through the weeks almost
+    like a calendar... four weeks you can look at and plan ahead for'."""
+    return rx.hstack(
+        rx.foreach(
+            DashboardState.week_options,
+            lambda w: rx.button(
+                w["label"],
+                size="2",
+                on_click=DashboardState.set_selected_week_offset(w["offset"].to(int)),
+                variant=rx.cond(
+                    DashboardState.selected_week_offset == w["offset"].to(int), "solid", "outline"
+                ),
+                color_scheme="bronze",
+            ),
+        ),
+        spacing="2",
+        wrap="wrap",
+    )
+
+
+def day_plan_cell(day: DayPlanView) -> rx.Component:
+    """One day in the 4-week planning calendar: shows any note already pencilled in
+    for that date, or lets her add one - request: 'tell the bot beforehand what you
+    want to go into those so it knows what to focus on' (e.g. a Halloween post for
+    31 Oct, or 'focus on the new statement release' for a known announcement date)."""
+    return rx.card(
+        rx.vstack(
+            rx.hstack(
+                rx.text(day.day_label, size="2", weight="medium"),
+                rx.cond(day.is_today, rx.badge("Today", color_scheme="bronze", variant="soft"), rx.fragment()),
+                spacing="2",
+                align="center",
+            ),
+            rx.cond(
+                day.note != None,  # noqa: E711 - rx.Var equality, not a Python None-check
+                rx.vstack(
+                    rx.text(day.note.note_text, size="2", class_name="hud-muted", white_space="pre-wrap"),
+                    rx.hstack(
+                        rx.badge(day.note.post_type_label, variant="soft", size="1"),
+                        rx.spacer(),
+                        rx.button(
+                            "Generate draft",
+                            size="1",
+                            on_click=DashboardState.generate_from_planned_note(day.note.id),
+                            loading=DashboardState.is_busy,
+                            **SECONDARY_CTA,
+                        ),
+                        rx.icon(
+                            "x",
+                            size=14,
+                            cursor="pointer",
+                            on_click=DashboardState.delete_planned_note(day.note.id),
+                        ),
+                        width="100%",
+                        align="center",
+                    ),
+                    spacing="2",
+                    width="100%",
+                ),
+                rx.vstack(
+                    rx.text_area(
+                        value=DashboardState.note_drafts[day.date],
+                        on_change=lambda v: DashboardState.set_note_draft(day.date, v),
+                        placeholder="Pencil in what this day should be about...",
+                        size="1",
+                        min_height="60px",
+                        width="100%",
+                    ),
+                    rx.hstack(
+                        rx.select(
+                            POST_TYPES,
+                            value=DashboardState.note_draft_post_types[day.date],
+                            on_change=lambda v: DashboardState.set_note_draft_post_type(day.date, v),
+                            size="1",
+                        ),
+                        rx.spacer(),
+                        rx.button(
+                            "Save note",
+                            size="1",
+                            on_click=DashboardState.save_planned_note(day.date),
+                            **SECONDARY_CTA,
+                        ),
+                        width="100%",
+                        align="center",
+                    ),
+                    spacing="2",
+                    width="100%",
+                ),
+            ),
+            spacing="2",
+            width="100%",
+        ),
+        width="100%",
+    )
+
+
+def planning_calendar() -> rx.Component:
+    return rx.vstack(
+        rx.text(
+            "Plan ahead - pencil in what a day should be about before it's time to draft it.",
+            size="2",
+            class_name="hud-muted",
+        ),
+        rx.grid(
+            rx.foreach(DashboardState.week_plan, day_plan_cell),
+            columns=rx.breakpoints(initial="1", sm="2", lg="4"),
+            spacing="3",
+            width="100%",
+        ),
+        spacing="3",
         width="100%",
     )
 

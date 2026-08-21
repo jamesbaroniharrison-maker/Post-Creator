@@ -2,20 +2,31 @@
 Registers the two scheduled email jobs as Windows Scheduled Tasks: the weekly
 personal-story reminder and the weekly post digest.
 
-Both run HOURLY (not once a day) because both day AND time are independently
-configurable from the dashboard's "Email reminders" card - the Python job itself
-(email_engine/reminder.py, email_engine/digest.py) checks "is today the right weekday
-AND is this the right hour" every time it's invoked, so hourly is what actually makes
-an arbitrary time-of-day setting work without ever touching Task Scheduler again.
-Each job is also idempotent per week via job_runs, so extra hourly firings are no-ops.
+Each runs ONCE A DAY (not hourly) - and each trigger fires at exactly that job's
+configured send time, read from the dashboard's "Email reminders" settings at
+registration time. Since the two jobs (reminder/digest) can have different times,
+they're two separate tasks with two separate daily trigger times - there's no need to
+poll every hour, one precise daily firing per job is enough. Each job is also
+idempotent per week via job_runs, so the at-logon catch-up trigger firing on top is a
+safe no-op if the day's run already happened.
+
+If you change the day/time in the dashboard, the app updates these tasks' trigger
+times automatically (see email_engine/settings.py) - you only need to re-run this
+script by hand if the tasks aren't registered yet at all, or something's gone wrong.
 
 Usage (run from an elevated PowerShell prompt, from this scripts/ directory):
     .\register_email_tasks.ps1
+    .\register_email_tasks.ps1 -ReminderTime "09:00" -DigestTime "12:00"
 
 To remove them later:
     Unregister-ScheduledTask -TaskName "WPA Weekly Reminder Email" -Confirm:$false
     Unregister-ScheduledTask -TaskName "WPA Weekly Digest Email" -Confirm:$false
 #>
+
+param(
+    [string]$ReminderTime = "09:00",
+    [string]$DigestTime = "12:00"
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -31,24 +42,30 @@ $Settings = New-ScheduledTaskSettingsSet `
     -DontStopOnIdleEnd `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
 
-$HourlyTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Hours 1) -RepetitionDuration ([TimeSpan]::MaxValue)
 $LogonTrigger = New-ScheduledTaskTrigger -AtLogOn
 
 # --- Weekly personal-story reminder ---
+$ReminderTrigger = New-ScheduledTaskTrigger -Daily -At $ReminderTime
 $ReminderAction = New-ScheduledTaskAction `
     -Execute $VenvPython `
     -Argument "-m wpa_content_engine.email_engine.run --job reminder" `
     -WorkingDirectory $AppDir
 
+# -ErrorAction Stop: Register-ScheduledTask's CIM errors don't reliably respect
+# $ErrorActionPreference (confirmed live) - without this, a real failure here would
+# print an error and then the script would carry on to the false "Registered" line.
 Register-ScheduledTask `
     -TaskName "WPA Weekly Reminder Email" `
     -Action $ReminderAction `
-    -Trigger @($HourlyTrigger, $LogonTrigger) `
+    -Trigger @($ReminderTrigger, $LogonTrigger) `
     -Settings $Settings `
-    -Description "Checks hourly whether it's her chosen reminder day and hour, and sends the personal-story nudge if so. Both are set in the dashboard, not here." `
-    -RunLevel Limited
+    -Description "Runs once a day at $ReminderTime and sends the personal-story nudge if today is her chosen reminder day. Day/time are set in the dashboard, which keeps this trigger's time in sync automatically." `
+    -RunLevel Limited `
+    -Force `
+    -ErrorAction Stop
 
 # --- Weekly post digest ---
+$DigestTrigger = New-ScheduledTaskTrigger -Daily -At $DigestTime
 $DigestAction = New-ScheduledTaskAction `
     -Execute $VenvPython `
     -Argument "-m wpa_content_engine.email_engine.run --job digest" `
@@ -57,9 +74,11 @@ $DigestAction = New-ScheduledTaskAction `
 Register-ScheduledTask `
     -TaskName "WPA Weekly Digest Email" `
     -Action $DigestAction `
-    -Trigger @($HourlyTrigger, $LogonTrigger) `
+    -Trigger @($DigestTrigger, $LogonTrigger) `
     -Settings $Settings `
-    -Description "Checks hourly whether it's her chosen digest day and hour, and sends the week's scheduled posts if so." `
-    -RunLevel Limited
+    -Description "Runs once a day at $DigestTime and sends the week's scheduled posts if today is her chosen digest day. Day/time are set in the dashboard, which keeps this trigger's time in sync automatically." `
+    -RunLevel Limited `
+    -Force `
+    -ErrorAction Stop
 
-Write-Host "Registered 'WPA Weekly Reminder Email' and 'WPA Weekly Digest Email' - both check hourly, day/time are set in the dashboard."
+Write-Host "Registered 'WPA Weekly Reminder Email' (daily at $ReminderTime) and 'WPA Weekly Digest Email' (daily at $DigestTime) - each runs once a day, not hourly."

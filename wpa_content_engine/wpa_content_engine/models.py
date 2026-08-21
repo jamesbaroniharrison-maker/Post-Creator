@@ -97,6 +97,20 @@ class ApiUsageCounter(rx.Model, table=True):
     tavily_calls: int = 0
 
 
+class PlannedNote(rx.Model, table=True):
+    """A forward-looking brief she attaches to a specific future date (request: "let
+    me put a note... I want this to be about that new statement" / a Halloween-themed
+    post pencilled in for 31 Oct) - lets her tell the drafting engine what to focus on
+    for a day before any research/topic exists yet, browsable across the 4-week
+    look-ahead on the Accepted page.
+    """
+
+    target_date: str  # "YYYY-MM-DD"
+    note_text: str
+    post_type: str = "personal_reflection"
+    created_at: datetime
+
+
 class EmailSettings(rx.Model, table=True):
     """Single-row settings for the two scheduled email jobs (weekly personal-story
     reminder, weekly post digest) - requested after the original spec, not in Â§9.
@@ -111,3 +125,7 @@ class EmailSettings(rx.Model, table=True):
     digest_day: str = "Sunday"
     digest_time: str = "12:00"
     digest_enabled: bool = True
+    # JSON-encoded list of the prompt suggestions shown in the *last* reminder email -
+    # excluded from this week's pick so she never sees the same suggestion two weeks
+    # running (request: "switch them up each week... don't request that the next week").
+    last_reminder_prompts: str = ""

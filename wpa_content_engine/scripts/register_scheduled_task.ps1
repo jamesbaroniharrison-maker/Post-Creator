@@ -41,12 +41,18 @@ $Settings = New-ScheduledTaskSettingsSet `
     -DontStopOnIdleEnd `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
 
+# Register-ScheduledTask's own CIM errors don't reliably respect $ErrorActionPreference
+# (confirmed live: an Access Denied error printed, then the script carried on and
+# printed a false "Registered" success line anyway) - force it with -ErrorAction Stop
+# so a real failure (e.g. not actually running elevated) stops the script here instead
+# of lying about success.
 Register-ScheduledTask `
     -TaskName "WPA Daily Research Cron" `
     -Action $Action `
     -Trigger @($DailyTrigger, $LogonTrigger) `
     -Settings $Settings `
     -Description "Runs the WPA content engine's daily research cron (spec section 3a/5). Idempotent per day." `
-    -RunLevel Limited
+    -RunLevel Limited `
+    -ErrorAction Stop
 
 Write-Host "Registered 'WPA Daily Research Cron' - daily at $DailyTime, plus at log-on as a catch-up."

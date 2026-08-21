@@ -21,9 +21,15 @@ from wpa_content_engine.drafting_engine.pipeline import (
 )
 from wpa_content_engine.drafting_engine.research import ResearchFinding, ResearchResult
 from wpa_content_engine.email_engine.settings import get_email_settings, save_email_settings
-from wpa_content_engine.models import ForcedTopic, Post, TopicBank
+from wpa_content_engine.models import ForcedTopic, PlannedNote, Post, TopicBank
 from wpa_content_engine.research_cron.pipeline import run_daily_research
-from wpa_content_engine.scheduling import allocate_accepted_posts, current_week_label, prune_rejected_posts
+from wpa_content_engine.scheduling import (
+    allocate_accepted_posts,
+    current_week_label,
+    prune_rejected_posts,
+    upcoming_week_mondays,
+    week_dates,
+)
 
 REJECTION_REASONS = ["not relevant", "wrong tone", "already covered"]
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -80,6 +86,24 @@ class ForcedTopicView(pydantic.BaseModel):
     category_label: str = ""
 
 
+class PlannedNoteView(pydantic.BaseModel):
+    id: int
+    target_date: str
+    note_text: str
+    post_type: str = "personal_reflection"
+    post_type_label: str = ""
+
+
+class DayPlanView(pydantic.BaseModel):
+    """One day cell in the 4-week planning calendar: the date, a friendly label,
+    whether it's today, and the note attached to it (if any)."""
+
+    date: str
+    day_label: str  # "Mon 31 Aug"
+    is_today: bool
+    note: PlannedNoteView | None = None
+
+
 def _week_label(dt: datetime) -> str:
     monday = dt - timedelta(days=dt.weekday())
     return f"Week of {monday.strftime('%d %b %Y')}"
@@ -116,6 +140,15 @@ class DashboardState(rx.State):
     history_posts: list[PostView] = []
     stats: dict[str, str] = {}
 
+    # Accepted page: status filter + 4-week look-ahead selector (request: "a filter for
+    # looking at accepted and looking at published ones" / "select through the weeks
+    # almost like a calendar... four weeks you can look at and plan ahead for")
+    accepted_status_filter: str = "all"  # all / approved / published
+    selected_week_offset: int = 0  # 0-3, index into upcoming_week_mondays()
+    planned_notes: list[PlannedNoteView] = []
+    note_drafts: dict[str, str] = {}  # date -> in-progress note text, before Save
+    note_draft_post_types: dict[str, str] = {}  # date -> post type for that in-progress note
+
     # Quick actions
     quick_topic: str = ""
     quick_post_type: str = "industry_insight"
@@ -149,6 +182,7 @@ class DashboardState(rx.State):
             self._reload_forced_topics()
             self._reload_history()
             self._reload_email_settings()
+            self._reload_planned_notes()
             self._reload_stats()
         except Exception as exc:  # noqa: BLE001
             self.status_message = (
@@ -187,23 +221,165 @@ class DashboardState(rx.State):
             ).all()
         self.rejected_posts = [_row_to_view(p) for p in rows]
 
+    @rx.event
+    def set_accepted_status_filter(self, value: str):
+        self.accepted_status_filter = value
+
+    @rx.event
+    def set_selected_week_offset(self, offset: int):
+        self.selected_week_offset = offset
+        self._reload_planned_notes()
+
+    @rx.var
+    def week_options(self) -> list[dict[str, str]]:
+        """The 4-week look-ahead: this week, next week, and two more - request: 'four
+        weeks you can look at and plan ahead for'."""
+        mondays = upcoming_week_mondays(4)
+        names = ["This week", "Next week", "In 2 weeks", "In 3 weeks"]
+        return [
+            {"offset": str(i), "monday": monday, "label": f"{names[i]} ({monday})"}
+            for i, monday in enumerate(mondays)
+        ]
+
+    @rx.var
+    def selected_week_monday(self) -> str:
+        mondays = upcoming_week_mondays(4)
+        idx = min(max(self.selected_week_offset, 0), len(mondays) - 1)
+        return mondays[idx]
+
     @rx.var
     def accepted_by_week(self) -> list[tuple[str, list[PostView]]]:
         current = current_week_label()
-        groups: dict[str, list[PostView]] = {}
-        for p in self.accepted_posts:
-            groups.setdefault(p.scheduled_week, []).append(p)
-        ordered = sorted(groups.items(), key=lambda kv: kv[0])
-        labeled = []
-        for i, (week, posts) in enumerate(ordered):
-            if week == current:
-                label = f"This week (starting {week})"
-            elif i > 0 and ordered[i - 1][0] == current:
-                label = f"Next week (starting {week})"
+        selected = self.selected_week_monday
+        filtered = [
+            p
+            for p in self.accepted_posts
+            if p.scheduled_week == selected
+            and (self.accepted_status_filter == "all" or p.status == self.accepted_status_filter)
+        ]
+        if not filtered:
+            return []
+        label = "This week" if selected == current else f"Week starting {selected}"
+        return [(f"{label} ({selected})", filtered)]
+
+    # ---- forward-planning notes: pencil in what a future date should be about,
+    # before any topic/research exists (request: "put a note... I want this to be
+    # about that new statement" / a Halloween-themed post pencilled in ahead of time) ----
+
+    def _reload_planned_notes(self):
+        dates = week_dates(self.selected_week_monday)
+        with rx.session(url=config.db_url) as session:
+            rows = session.exec(
+                sqlmodel.select(PlannedNote).where(sqlmodel.col(PlannedNote.target_date).in_(dates))
+            ).all()
+        self.planned_notes = [
+            PlannedNoteView(
+                id=r.id,
+                target_date=r.target_date,
+                note_text=r.note_text,
+                post_type=r.post_type,
+                post_type_label=humanize(r.post_type),
+            )
+            for r in rows
+        ]
+        # Pre-seed the draft-input dicts for every date in the visible week, so the
+        # frontend never indexes a missing dict key for a day with no note yet.
+        self.note_drafts = {**{d: "" for d in dates}, **self.note_drafts}
+        self.note_draft_post_types = {
+            **{d: "personal_reflection" for d in dates},
+            **self.note_draft_post_types,
+        }
+
+    @rx.var
+    def week_plan(self) -> list[DayPlanView]:
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        by_date = {n.target_date: n for n in self.planned_notes}
+        days = []
+        for d in week_dates(self.selected_week_monday):
+            dt = datetime.strptime(d, "%Y-%m-%d")
+            days.append(
+                DayPlanView(
+                    date=d,
+                    day_label=dt.strftime("%a %d %b"),
+                    is_today=d == today,
+                    note=by_date.get(d),
+                )
+            )
+        return days
+
+    @rx.event
+    def set_note_draft(self, date: str, value: str):
+        self.note_drafts = {**self.note_drafts, date: value}
+
+    @rx.event
+    def set_note_draft_post_type(self, date: str, value: str):
+        self.note_draft_post_types = {**self.note_draft_post_types, date: value}
+
+    @rx.event
+    def save_planned_note(self, date: str):
+        note_text = self.note_drafts.get(date, "").strip()
+        if not note_text:
+            return
+        post_type = self.note_draft_post_types.get(date, "personal_reflection")
+        with rx.session(url=config.db_url) as session:
+            existing = session.exec(
+                sqlmodel.select(PlannedNote).where(PlannedNote.target_date == date)
+            ).first()
+            if existing:
+                existing.note_text = note_text
+                existing.post_type = post_type
+                session.add(existing)
             else:
-                label = f"Week starting {week}"
-            labeled.append((label, posts))
-        return labeled
+                session.add(
+                    PlannedNote(
+                        target_date=date,
+                        note_text=note_text,
+                        post_type=post_type,
+                        created_at=datetime.now(timezone.utc),
+                    )
+                )
+            session.commit()
+        self.note_drafts = {k: v for k, v in self.note_drafts.items() if k != date}
+        self._reload_planned_notes()
+        self.status_message = f"Note saved for {date}."
+
+    @rx.event
+    def delete_planned_note(self, note_id: int):
+        with rx.session(url=config.db_url) as session:
+            row = session.get(PlannedNote, note_id)
+            if row:
+                session.delete(row)
+                session.commit()
+        self._reload_planned_notes()
+
+    @rx.event(background=True)
+    async def generate_from_planned_note(self, note_id: int):
+        async with self:
+            note = next((n for n in self.planned_notes if n.id == note_id), None)
+            if note is None:
+                return
+            self.is_busy = True
+            self.status_message = f"Drafting from your note for {note.target_date}..."
+            note_text, post_type, target_date = note.note_text, note.post_type, note.target_date
+
+        try:
+            skip_research = post_type == "personal_reflection"
+            post = generate_and_save_draft(note_text, post_type, skip_research=skip_research)
+            with rx.session(url=config.db_url) as session:
+                row = session.get(Post, post.id)
+                dt = datetime.strptime(target_date, "%Y-%m-%d")
+                row.suggested_day = dt.strftime("%A")
+                session.add(row)
+                session.commit()
+            message = f"Draft generated for {target_date} - check Review."
+        except Exception as exc:  # noqa: BLE001
+            message = f"Draft generation failed: {exc}"
+
+        async with self:
+            self.is_busy = False
+            self.status_message = message
+            self._reload_posts()
+            self._reload_stats()
 
     def _reload_bank(self):
         with rx.session(url=config.db_url) as session:

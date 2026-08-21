@@ -425,3 +425,224 @@ the research cron's nor the email jobs' Windows Scheduled Tasks are registered y
 (`scripts/register_scheduled_task.ps1`, `scripts/register_email_tasks.ps1` - both
 written and ready); (3) email sending is inert until `EMAIL_ADDRESS`/
 `EMAIL_APP_PASSWORD` are filled in `.env` with real Gmail app-password credentials.
+
+## Full-system audit (21 Aug 2026)
+
+Browser automation became available and was used to close item (1) above for real:
+drove a real headless-Chromium session through login and all 7 pages, Accept/Redraft/
+Reject, and chip editing - zero console errors. Also ran the level 4/5 pipelines live
+(not fixtures) to sanity-check two things the spec never got measured against real
+data: whether the topic bank actually keeps up with a 3-4 posts/week cadence (one
+forced research run alone banked 21 high-tier finds - roughly ten weeks of industry-
+insight supply; company-update supply is genuinely thin since WPA's own newsroom rarely
+publishes daily-fresh news, which is exactly why spec Â§1's flex-to-industry-insight
+fallback exists), and whether generated drafts actually match her voice profile's own
+recorded stats (they did - two independently generated drafts reproduced her real
+"I've learned that..." and "So, ..." patterns and 0.0 avg-hashtags-per-post unprompted).
+
+**Real bug found and fixed - PII wasn't actually being scrubbed.** Spec Â§4 (LLM02)
+calls for a PII scrub before her weekly notes reach any model; `draft.py` only ever
+asked the model to *flag* sensitive content in `compliance_note`, never to remove it.
+Tested with a fabricated adversarial note (a client's full name, town, rare diagnosis,
+exact claim amount - synthetic test data, not a real client) and confirmed all of it
+came through verbatim in `text`, plus the client's name and treatment centre landed in
+`tags` (meant for public-entity @mentions) as clickable chips at the top of the review
+queue. First fix attempt (stronger inline prompt rules) closed the `tags` leak and got
+a correctly-triggered compliance note, but the identifying details still leaked into
+`text` on re-test - llama3 8B doesn't reliably follow a scrub instruction bundled
+alongside drafting/voice/sourcing rules in the same call. Real fix: split it into two
+calls. `_scrub_note()` in `draft.py` is a new, narrow Ollama call whose only job is
+rewriting a raw personal note to generalise name/location/diagnosis/exact figures
+(with an explicit worked example in a different domain, same technique that fixed the
+level 3 close-read JSON-echo bug) - `draft_post()` now runs this first whenever
+`research.findings` is empty (i.e. the topic is her own raw note, not a research-backed
+fact) and drafts from the scrubbed version. Re-tested the identical adversarial note
+end to end: name, town, diagnosis, and exact figure all correctly generalised
+("a client from the south of England", "a serious illness", "a local cancer centre",
+"life-changing treatment"), `tags` correctly held only `["WPA"]`. Re-tested a normal,
+non-identifying note afterward to confirm the scrub step doesn't distort content that
+had nothing to scrub - confirmed unchanged in substance.
+
+**Real bug found and fixed - unlabelled likes/comments fields.** On the Accepted page,
+a published post's likes/comments entry used placeholder text ("likes"/"comments")
+instead of a persistent label, so the fields went blank and unexplained as soon as a
+number was typed in - every other field on the page (Hashtags, Tags, Compliance note)
+has a persistent `rx.text` label above it. Added matching labels in
+`components.accepted_post_card`. Verified live in-browser: labels render correctly
+above both fields, values unaffected.
+
+**Known limitation, not a bug:** the PII scrub only runs when `research.findings` is
+empty, i.e. for personal-reflection-style raw notes. It intentionally does not run on
+research-backed topics (industry insight/company update), since those are drafted from
+public facts, not her private notes, and scrubbing them would be pointless. If a future
+post type mixes her raw commentary with research in the same call, revisit this gate.
+
+## Accepted page: filter, 4-week calendar, forward-planning notes (request, post-audit)
+
+Three real UI issues/requests came back after using the audited build:
+
+**Fixed - hashtag/tag input boxes clipped their own text.** `chip_list`'s `rx.input`
+had no `flex`/`width`, so inside its `rx.hstack` it rendered at browser-default width
+regardless of `size` - fine for a short tag, useless for anything longer. Given
+`flex="1"` + `min_width="0"` so it fills the row; `Add` button given `flex_shrink="0"`
+so it doesn't get squeezed. Likes/comments inputs on Accepted widened 7rem -> 9rem for
+the same reason. Verified live: a 29-character hashtag now renders in full.
+
+**Added - Accepted page status filter** (request: "a filter for looking at accepted
+and looking at published ones... don't want to sift through ones that haven't been
+published yet" when logging likes/comments). `accepted_status_filter` state var (all /
+approved / published), applied inside `accepted_by_week`.
+
+**Added - 4-week look-ahead calendar** (request: "select through the weeks almost like
+a calendar... four weeks you can look at and plan ahead for"). `scheduling.py` gained
+`upcoming_week_mondays()`/`week_dates()`; the Accepted page now shows one week at a
+time via `selected_week_offset` (0-3) instead of every scheduled week stacked
+indefinitely, with a button bar showing real dates for each of the 4 weeks.
+
+**Added - forward-planning notes** (request: "I want to be able to put a note... on the
+31st of October, I want it to be slightly Halloween... or there's going to be a new
+statement release, I want this to be about that" - i.e. brief the drafting engine on a
+future date before any topic exists). New `PlannedNote` table (migration
+`dbcc2af3183a_add_planned_note_table.py`): `target_date`, `note_text`, `post_type`.
+Accepted page gained a "Plan ahead" calendar grid, one card per day in the selected
+week, each either showing an existing note (with a "Generate draft" button that runs
+the real drafting pipeline using the note as the topic, `skip_research` gated on post
+type) or a small form to add one. Real bug hit and fixed while wiring this up:
+`components.day_plan_cell` originally called the plain-Python `humanize()` helper
+directly on a reactive `Var` inside a `rx.foreach` render function - `humanize()`'s
+`if value else value` branch can't evaluate a `Var`'s truthiness
+(`VarTypeError: Cannot convert Var ... to bool`), the same class of bug the rest of the
+dashboard already avoids by pre-computing `*_label` fields server-side. Fixed the same
+way: `PlannedNoteView` gained `post_type_label`, populated in `_reload_planned_notes`
+instead of calling `humanize()` at render time.
+
+Tested live end to end, not just compiled: saved a note ("Halloween-themed post about
+workplace wellbeing spooky season tie-in") on a real date, confirmed it persisted
+through a page reload, clicked "Generate draft", and got back a real draft that
+actually reflected the note's brief (a Halloween-party/wellbeing post, in her voice,
+`suggested_day` correctly set to match the note's date) - the planning note reliably
+steers what the drafting engine writes, not just decoration on the calendar.
+
+## Task Scheduler + Gmail: gone live (request, post-audit)
+
+All three Windows Scheduled Tasks are registered and confirmed `Ready`
+(`WPA Daily Research Cron`, `WPA Weekly Reminder Email`, `WPA Weekly Digest Email`).
+Real bug found and fixed in `scripts/register_email_tasks.ps1`: `-RepetitionDuration
+([TimeSpan]::MaxValue)` formats to `P99999999DT23H59M59S`, which Task Scheduler's XML
+schema rejects outright (`HRESULT 0x80041318`) - confirmed live, the task silently
+never got created despite the script printing a "Registered" success line. Root cause
+of that false success line: `Register-ScheduledTask`'s CIM errors don't respect
+`$ErrorActionPreference = "Stop"` on their own - both scripts now pass
+`-ErrorAction Stop` explicitly on the `Register-ScheduledTask` call itself. Fix for the
+duration bug: build the trigger without `-RepetitionDuration`, then set
+`$Trigger.Repetition.Duration = ""` after creation - the documented way to mean
+"repeat indefinitely," confirmed by inspecting the resulting CIM object. Also worth
+noting for future debugging: `Register-ScheduledTask` needs a genuinely elevated
+PowerShell window - a plain window that merely doesn't error can still fail with
+Access Denied, so verify with
+`([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)`
+before assuming elevation.
+
+Gmail app-password credentials are in `.env`; `send_email()` confirmed working via a
+real live send. Both scheduled tasks were also triggered manually
+(`Start-ScheduledTask`) to prove they actually run, not just that they exist - research
+cron correctly no-op'd (already run today), reminder email correctly skipped with a
+specific reason (`"it's 15:00, reminder time is 09:00"`) rather than erroring.
+
+**Weekly reminder now suggests rotating prompt ideas** (request: "give a few
+recommendations of some things it could be about... switch them up each week...
+doesn't request that the next week as well"). `PROMPT_POOL` in `reminder.py` holds 10
+prompt ideas; each send picks 3, excluding whatever 3 were shown last time
+(`EmailSettings.last_reminder_prompts`, JSON, updated only after a successful send).
+She's never told to use one - the email frames them as optional. Tested live: sent two
+consecutive reminder emails (`--force` twice) and confirmed zero overlap between the
+two sets of 3. Real side-effect caught and fixed after testing: force-sending marks
+`job_runs` as sent, which would have made the *real* scheduled task silently skip for
+up to 6 days once the actual configured day/time came around - reset `job_runs` for
+both email jobs (and `last_reminder_prompts` back to empty) after testing so the live
+schedule starts clean, not mid-test-state.
+
+**Full visual audit, all 7 pages, after a user-reported spacing bug that didn't
+reproduce**: screenshotted every page in a clean headless browser (no extensions) -
+everything rendered correctly, no clipped text, no overlapping elements. The reported
+issue was very likely a browser extension icon (e.g. dictation/accessibility) that
+injects itself onto a focused input field - not something this app renders.
+
+**Reminder email now checks whether she's already sent something in this week**
+(request: "if something is already added into the personal section, I don't want that
+personal nudge to go out... rather than a nudge to do it, a nudge to go check it
+quickly"). New `scheduling.current_week_start()` gives a tz-aware Monday-00:00 boundary
+to filter `Post.created_at` against; `reminder._existing_personal_post_this_week()`
+looks for a non-rejected `personal_reflection` post created since then. Branches on
+what it finds: nothing -> the normal ask-for-a-story nudge (with rotating prompts, see
+above); `drafted` -> a short "it's already in Review waiting for you" nudge with an
+excerpt; `approved` -> "already accepted, just needs posting" with an excerpt;
+`published` -> nothing to nudge about, so no email sends at all (job still marks itself
+as run, so it doesn't re-check every hour for the rest of the week). A rejected post
+doesn't count as "already there" - if it didn't work out, she should still get asked
+for a new one. Tested live, all four branches: inserted a test post and walked it
+drafted -> approved -> published, force-sending the job at each stage and confirming
+the email (or absence of one) matched - then deleted the test post and reset
+`job_runs`/`last_reminder_prompts` so testing didn't leave the live schedule in a
+mid-test state.
+
+## PII scrub hardened - a second, independent check, not just a doc caveat
+
+The handoff pack had documented "PII scrub isn't 100% automatic, review before
+accepting" as a known limitation - correctly flagged, but a caveat isn't a fix.
+Reworked `draft.py`'s scrub into two layers on top of the original single rewrite
+call, since "worked in testing" on an 8B local model isn't the same as "reliable every
+time":
+
+1. **Deterministic money redaction** (`_redact_money`, a regex, not a model) - applied
+   to the scrubbed note before drafting *and* to the final draft text on the way out.
+   An exact monetary figure is unambiguous, so this layer cannot fail to catch one
+   regardless of what the LLM did upstream.
+2. **A second, independent LLM call verifies the first one's work**
+   (`_still_identifying`) - checking a narrow yes/no question ("does this still name a
+   real person, a specific place, or an exact figure?") is far more reliable for a
+   small model than getting the original rewrite exactly right in one pass. If it
+   still finds something, `_scrub_note` retries the rewrite once with that pointed out
+   explicitly, then verifies again.
+
+If it's still unresolved after the retry, `draft_post` now overwrites
+`compliance_note` with an unmissable `"PII CHECK FAILED..."` message instead of
+whatever the drafting call would have said - so an unresolved case can never quietly
+read as "No compliance concerns identified."
+
+Tested live: re-ran the exact Sarah Thompson/Bristol/leukaemia/£45,000 adversarial
+case end to end - fully scrubbed on the first pass this time (no name, no town, no
+diagnosis specifics, no figure). Also unit-tested `_still_identifying` in isolation
+against a deliberately unscrubbed sentence (correctly returned `True`) and a properly
+scrubbed one (correctly returned `False`), and `_redact_money` against both `£` and
+`$` figures, to confirm the safety net itself works, not just the happy path.
+
+## Email tasks were firing hourly - fixed to once a day (user-reported)
+
+The hourly-poll design (chosen so an arbitrary day+time setting could be honoured
+without hand-editing Task Scheduler) turned out to be a real nuisance in practice -
+she was seeing both email tasks fire every hour, all day. Confirmed live via
+`Get-ScheduledTask`: the reminder task's trigger was a repeating "Once" trigger with
+an hourly `Repetition` pattern, exactly as designed - working as built, but the design
+itself was wrong for daily use.
+
+Fixed properly rather than just reducing frequency: since `reminder_time` and
+`digest_time` are two independent settings already, and each job is its own Scheduled
+Task, each task's trigger can just fire once a day at exactly that job's configured
+time - no polling needed at all. `register_email_tasks.ps1` now registers two
+`-Daily -At <time>` triggers instead of one shared hourly one.
+
+The remaining gap: if she changes the time in the dashboard, the *stored* setting
+changes but the *live Windows trigger* wouldn't move on its own, and the two would
+silently drift apart. Closed this in `email_engine/settings.py`:
+`save_email_settings` now also calls `schtasks /Change /TN "<task>" /ST <time>` for
+both tasks after saving - best-effort (wrapped so a failure here, e.g. task not
+registered yet, never blocks the actual settings save).
+
+**Could not apply the live fix myself**: `Register-ScheduledTask`/`schtasks /Change`
+both require genuine elevation, confirmed via a live "Access is denied" when tried
+from a non-elevated session (`IsInRole(Administrator)` returned `False`). The code fix
+is committed and correct, but **the already-registered hourly tasks on this machine
+need `scripts/register_email_tasks.ps1` re-run once from an elevated PowerShell
+prompt** to actually replace them - `-Force` is already set so it overwrites the old
+hourly-trigger tasks cleanly, no manual unregister step needed first.
