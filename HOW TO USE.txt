@@ -1,14 +1,46 @@
 ====================================================================
-  WPA CONTENT ENGINE - HOW TO USE
+  WPA CONTENT ENGINE - YOUR GUIDE
+====================================================================
+This covers everything: setting it up on your computer, and how to
+use every part of it day to day. No coding knowledge needed for any
+of it - the "setup" section is best done sitting with James once,
+after that you'll never need to touch any of that again.
+
+====================================================================
+PART 1 - ONE-TIME SETUP (do this with James)
 ====================================================================
 
-STARTING THE APP
+WHAT YOU NEED TO CREATE
 ---------------------------------------------------------------------
-1. Find the file called "Start WPA Content Engine.bat" in this same
-   folder.
+- A GitHub account (github.com - free). This is where the program's
+  code lives, and it needs to be YOUR account, since this is your
+  business. James will send you a "transfer" invite - you just need
+  to accept it (check your email / github.com notifications).
+- After that, on the GitHub website: Settings > Collaborators > add
+  James's username, so he can keep helping you with it.
+
+Everything else technical (installing the program itself, the
+research/writing tools it uses, etc.) is a one-time job James does
+with you directly - it involves installing a few things on your
+computer that aren't realistic to do from a written guide. Once it's
+done, you'll never see any of that again - you'll just use the app
+like any other program.
+
+WHAT YOU'LL END UP WITH
+---------------------------------------------------------------------
+- A shortcut on your desktop to start the app
+- A username and password to log in
+- All your existing content already there waiting (if James copied
+  it across) - so you're not starting from zero
+
+====================================================================
+PART 2 - STARTING THE APP
+====================================================================
+1. Find the file called "Start WPA Content Engine.bat" (or the
+   shortcut on your desktop if you made one).
    TIP: right-click it and choose "Send to > Desktop (create
-   shortcut)" so you have an icon on your desktop and never need to
-   find this folder again.
+   shortcut)" so you always have an icon and never need to hunt for
+   the folder.
 2. Double-click it.
 3. A black window will pop up and show some text scrolling by. This
    is normal - just leave it alone. The first time you do this it
@@ -27,8 +59,9 @@ Password: (given to you separately - keep it somewhere safe)
 If you forget the password, contact James - it can be reset, but
 there's no "forgot password" link, since this only has one user.
 
-THE PAGES
----------------------------------------------------------------------
+====================================================================
+PART 3 - THE PAGES
+====================================================================
 Along the top of every page is a menu: Home, Review, Accepted,
 Rejected, Topic Bank, Past Weeks, Settings. Click any of them to jump
 straight there.
@@ -60,15 +93,30 @@ REVIEW
   on your behalf.
 
 ACCEPTED
-  Everything you've accepted, automatically sorted into "This week"
-  and "Next week" (up to 4 posts a week - if you accept more than
-  that, the extras roll into the following week by themselves, no
-  need to manage this yourself). For each one:
-    - Click "Copy text" to copy the post, then paste it into LinkedIn
-      yourself.
+  Everything you've accepted, automatically sorted into weeks (up to
+  4 posts a week - if you accept more than that, the extras roll into
+  the following week by themselves, no need to manage this yourself).
+
+  Near the top you'll see two rows of buttons:
+    - A week selector (This week / Next week / and two more ahead) -
+      click through to look at what's coming up.
+    - A filter (All / Accepted, not published / Published) - handy
+      when you're logging likes and comments and don't want to wade
+      through posts that aren't live yet.
+
+  For each post:
+    - Click "Copy text" to copy it, then paste into LinkedIn yourself.
     - Once it's actually posted, click "Mark published".
     - Once published, come back later and type in the likes and
       comments it got, for your own records.
+
+  Further down is "Plan ahead" - a small calendar for the same 4
+  weeks. If you already know a date should be about something specific
+  (a seasonal post, a company announcement, whatever), type a quick
+  note on that day and save it. When you're ready, click "Generate
+  draft" on that day and it'll write the post using your note as the
+  brief - so you can tell the system what's coming before you'd
+  normally think to.
 
 REJECTED
   Only the 5 most recent rejected posts are kept - anything older is
@@ -102,21 +150,25 @@ SETTINGS
 
   Email Reminders - fully adjustable, day and time, independently for
   each:
-    - Personal story reminder - a nudge to send in a story.
+    - Personal story reminder - a nudge to send in a story. If you've
+      already sent one in that week, this email changes automatically
+      to a quick "it's waiting for you in Review" nudge instead of
+      asking for a new one - it won't ask twice.
     - Weekly post digest - a summary of everything lined up that week.
     Set your email address, pick a day and time for each, click
-    "Save". (These won't actually send until James finishes setting
-    up the account they come from.)
+    "Save".
 
-CLOSING THE APP
----------------------------------------------------------------------
+====================================================================
+PART 4 - CLOSING THE APP
+====================================================================
 When you're done, you can just close the browser tab. If you also
 want to shut down the black "SERVER" window, that's fine too - it'll
 just mean the app isn't reachable again until you double-click the
 starter file next time.
 
-IF SOMETHING GOES WRONG
----------------------------------------------------------------------
+====================================================================
+PART 5 - IF SOMETHING GOES WRONG
+====================================================================
 - If a page looks broken or shows an error message, try refreshing
   it first.
 - If that doesn't help, close everything (the browser tab and the

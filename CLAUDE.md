@@ -641,8 +641,43 @@ registered yet, never blocks the actual settings save).
 
 **Could not apply the live fix myself**: `Register-ScheduledTask`/`schtasks /Change`
 both require genuine elevation, confirmed via a live "Access is denied" when tried
-from a non-elevated session (`IsInRole(Administrator)` returned `False`). The code fix
-is committed and correct, but **the already-registered hourly tasks on this machine
-need `scripts/register_email_tasks.ps1` re-run once from an elevated PowerShell
-prompt** to actually replace them - `-Force` is already set so it overwrites the old
-hourly-trigger tasks cleanly, no manual unregister step needed first.
+from a non-elevated session (`IsInRole(Administrator)` returned `False`). User re-ran
+`register_email_tasks.ps1` from an elevated prompt themselves - confirmed fixed via
+`Get-ScheduledTask`: both tasks now show `DaysInterval: 1` at their exact configured
+times (09:00/12:00) instead of the old hourly repetition pattern.
+
+## Migration plan: handing off from James's PC to hers
+
+Requested directly, with two follow-up clarifications resolved before writing anything:
+(1) whether to move hosting to Render + Neon - **no**, explicitly ruled out, everything
+stays exactly as it runs today (self-hosted Ollama, SQLite, the `.bat` launcher,
+Windows Task Scheduler); (2) where drafting should run post-migration - **no change**,
+stays self-hosted, same as now. So this is a relocation + ownership handoff, not an
+architecture change - confirmed Render/Neon were never actually used to build this in
+the first place (checked git history and this session's own record; likely a
+naming mix-up on the user's part with generic "how web apps get deployed" advice).
+
+Two documents written, matching the request for one technical (any register) and one
+plain-English (bullet, step-by-step, covers setup *and* every feature):
+- **`MIGRATION - handoff to her.md`** (James-facing): GitHub repo transfer steps
+  (Settings > Danger Zone > Transfer ownership, then she adds James back as a
+  collaborator), optional account moves for the three API-key-holding services
+  (Gemini/Tavily/Gmail - all currently configured and working, moving them is
+  recommended for clean long-term ownership but explicitly optional, nothing breaks
+  either way), the full technical setup checklist for her PC (Python, git, Ollama +
+  `llama3` pull, venv, `.env`, database - with an explicit recommendation to copy the
+  real `.db` file across rather than starting fresh, so her actual voice profile and
+  post history carry over), registering the three Scheduled Tasks, an end-to-end test
+  checklist, and optional decommissioning steps for James's copy afterward.
+- **`HOW TO USE.txt`** (her-facing, rewritten): now opens with a short "Part 1" - the
+  one thing she actually needs to do herself (accept the GitHub transfer, add James as
+  a collaborator) with everything else technical flagged as "do this with James" rather
+  than presented as something to self-serve from bullet points - then the existing
+  page-by-page walkthrough, updated to cover features added since it was last written
+  (Accepted page's week selector/status filter, the 4-week "Plan ahead" calendar, and
+  the reminder email's "already sent this week" branching behaviour).
+
+Not yet done - genuinely can't be done by me: the actual GitHub transfer (needs her to
+create an account and accept an email invite) and the physical PC setup (needs local
+software installation on a machine I have no access to). Both documents are ready for
+whenever James is ready to walk through them with her.
