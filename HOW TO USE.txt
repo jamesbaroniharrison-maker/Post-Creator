@@ -12,12 +12,25 @@ PART 1 - ONE-TIME SETUP (do this with James)
 
 WHAT YOU NEED TO CREATE
 ---------------------------------------------------------------------
-- A GitHub account (github.com - free). This is where the program's
-  code lives, and it needs to be YOUR account, since this is your
-  business. James will send you a "transfer" invite - you just need
-  to accept it (check your email / github.com notifications).
-- After that, on the GitHub website: Settings > Collaborators > add
-  James's username, so he can keep helping you with it.
+A few accounts need to be in YOUR name, since this is your business.
+James will talk you through each of these when you sit down together,
+but for reference, here's the full list - all free:
+
+- GitHub (github.com) - where the program's code lives. James will
+  send you a "transfer" invite - you just accept it (check your email
+  / github.com notifications), then add James back as a collaborator
+  so he can keep helping (Settings > Collaborators > add his
+  username).
+- Google AI Studio (aistudio.google.com) - powers some of the
+  research and photo-reading behind the scenes.
+- Tavily (tavily.com) - does the actual news/web searching.
+- A dedicated Gmail address (not your personal one) - this is what
+  the reminder emails get sent from.
+
+None of these need any technical knowledge to sign up for - just an
+email address and a couple of clicks each. The bit that connects them
+to the program (typing the right codes into the right place) is the
+part James does with you.
 
 Everything else technical (installing the program itself, the
 research/writing tools it uses, etc.) is a one-time job James does
