@@ -10,6 +10,7 @@ one call handling your raw, unfiltered note before anything gets generalised.
 
 import json
 import os
+import pathlib
 import random
 import re
 
@@ -23,6 +24,20 @@ from linkedin_content_engine.drafting_engine.persona import (
     PERSONA_EXEMPLARS,
     PROHIBITED_PATTERNS,
 )
+
+_ABOUT_ME_PATH = pathlib.Path(__file__).resolve().parent.parent / "context" / "about_me.md"
+
+
+def _load_about_me() -> str:
+    """Biographical background (career/education/projects/achievements) - separate
+    from PERSONA_DESCRIPTION (that's voice, this is fact). Grows over time as James
+    tells the assistant to remember things; not committed to git (see context/README.md)
+    so a fresh clone won't have it - fall back to a plain "not available" note rather
+    than erroring."""
+    try:
+        return _ABOUT_ME_PATH.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return "(not yet available)"
 from linkedin_content_engine.drafting_engine.research import ResearchResult
 from linkedin_content_engine.drafting_engine.schema import DraftOutput
 
@@ -123,7 +138,14 @@ Gates (all must pass):
 5. Banned patterns - fail if ANY of these appear anywhere in the post, not just as an \
 opening line:
 __PROHIBITED_PATTERNS__
-6. Speech test: does it read like an authentic person talking from real experience, not \
+6. Fabrication: you are given the ORIGINAL TOPIC/NOTE the post was supposed to be drafted \
+from. Compare them directly, sentence by sentence. Fail this gate if the post states any \
+specific event, anecdote, scene, number, or first-person claim ("last week I...", "I set \
+up...", "total cost was...") that is NOT actually present in the original topic/note - \
+even if it sounds plausible and well-written. A well-written fabrication is still a \
+fabrication and must fail this gate. Commentary, opinion, and generalising the topic's \
+own content is fine; inventing a new specific scenario is not.
+7. Speech test: does it read like an authentic person talking from real experience, not \
 marketing copy?""".replace("__PROHIBITED_PATTERNS__", PROHIBITED_PATTERNS)
 
 _FUNNEL_GUIDANCE = {
@@ -181,6 +203,11 @@ several into one post):
 
 DEFAULT CADENCE:
 {cadence_mechanics}
+
+ABOUT THE AUTHOR (real biographical background - career, education, projects, \
+achievements. Use only what's actually relevant to this specific topic; never pad a \
+post with unrelated biography just because it's available here):
+{about_me}
 
 VOICE PROFILE (from statistical analysis of their real posts, where available):
 - Tone: {tone}
@@ -311,11 +338,17 @@ def _gemini_chat(system_prompt: str, user_content: str) -> str:
         msg = "DRAFT_LLM_PROVIDER=gemini but GEMINI_API_KEY is not set in .env."
         raise RuntimeError(msg)
 
-    model = os.environ.get("GEMINI_MODEL", "gemini-flash-lite-latest")
+    # Drafting quality benefits from a stronger model than the cheap one used for
+    # research scoring - GEMINI_DRAFT_MODEL overrides GEMINI_MODEL here specifically,
+    # falling back to it (then the lite default) if unset.
+    model = os.environ.get("GEMINI_DRAFT_MODEL") or os.environ.get("GEMINI_MODEL", "gemini-flash-lite-latest")
     response = httpx.post(
         f"https://generativelanguage.googleapis.com/v1beta/interactions?key={api_key}",
         json={"model": model, "system_instruction": system_prompt, "input": user_content},
-        timeout=120,
+        # 120s wasn't enough - confirmed live, a trivial 3-word prompt still took ~40s
+        # on gemini-flash-latest (looks like internal reasoning overhead), and the
+        # full drafting prompt is ~10k characters plus a same-model audit follow-up.
+        timeout=240,
     )
     response.raise_for_status()
 
@@ -365,18 +398,25 @@ def _still_identifying(text: str) -> bool:
         return True
 
 
-def _run_audit_call(text: str) -> tuple[bool, str]:
-    """Style/quality check on the drafted post. "No rhetorical questions" is an
-    absolute rule, and testing showed the LLM audit call doesn't reliably catch its own
-    violation of it (llama3 8B let one straight through) - so a question mark is
-    checked deterministically first, same reasoning as the money/em-dash regexes above.
-    Only if that passes does the narrower, more subjective 6-gate check run via LLM,
-    which fails open (assumes a pass) if the checker itself errors - unlike the privacy
-    check, a style-gate hiccup shouldn't block every draft."""
+def _run_audit_call(text: str, topic: str) -> tuple[bool, str]:
+    """Style/quality/fabrication check on the drafted post. "No rhetorical questions"
+    is an absolute rule, and testing showed the LLM audit call doesn't reliably catch
+    its own violation of it (llama3 8B let one straight through) - so a question mark
+    is checked deterministically first, same reasoning as the money/em-dash regexes
+    above. `topic` is passed through so the fabrication gate can actually compare the
+    post against what it was supposed to be drafted from - confirmed live that without
+    this, a well-written invented anecdote (specific numbers, a "last week I did X"
+    scene) sailed through undetected on a stronger model, because the checker had no
+    way to know what was actually in the original input. Fails open (assumes a pass)
+    if the checker itself errors - unlike the privacy check, a style-gate hiccup
+    shouldn't block every draft."""
     if "?" in text:
         return False, "contains a question mark (rhetorical questions are banned)"
     try:
-        content = _chat(_AUDIT_SYSTEM_PROMPT, f"Post to check:\n\n{text}")
+        content = _chat(
+            _AUDIT_SYSTEM_PROMPT,
+            f"ORIGINAL TOPIC/NOTE:\n{topic}\n\nPost to check:\n\n{text}",
+        )
         parsed = json.loads(content)
         return bool(parsed.get("passes", True)), parsed.get("problem", "")
     except Exception:
@@ -454,6 +494,7 @@ def draft_post(
         persona=PERSONA_DESCRIPTION,
         characteristic_language=CHARACTERISTIC_LANGUAGE,
         cadence_mechanics=CADENCE_MECHANICS,
+        about_me=_load_about_me(),
         prohibited_patterns=PROHIBITED_PATTERNS,
         tone=", ".join(close_read.get("tone_descriptors", [])) or "not yet available",
         rhetorical_patterns="; ".join(close_read.get("rhetorical_patterns", [])) or "not yet available",
@@ -477,17 +518,19 @@ def draft_post(
     draft = DraftOutput.model_validate(json.loads(content))
     draft.text = _strip_em_dash(_redact_money(draft.text))
 
-    passes, problem = _run_audit_call(draft.text)
+    passes, problem = _run_audit_call(draft.text, topic)
     if not passes:
         retry_content = (
             f"Topic: {topic}\n\n(Your previous draft failed the editing check for this "
-            f"reason: {problem}. Fix this specific issue and regenerate the full JSON.)"
+            f"reason: {problem}. Fix this specific issue and regenerate the full JSON. "
+            "Do not invent any specific event, anecdote, or number that isn't in the "
+            "topic above - write it as commentary/opinion instead.)"
         )
         try:
             content = _chat(system_prompt, retry_content)
             draft = DraftOutput.model_validate(json.loads(content))
             draft.text = _strip_em_dash(_redact_money(draft.text))
-            passes, _ = _run_audit_call(draft.text)
+            passes, _ = _run_audit_call(draft.text, topic)
         except Exception:
             passes = True  # keep the retry attempt rather than lose it entirely
 

@@ -162,3 +162,40 @@ matching module:
   check whether a personal post already exists this week before nudging.
 - Design system: dark mossy-green/bronze palette in `assets/design_tokens.css`,
   Fraunces headings / Inter body / IBM Plex Mono labels, forced dark theme.
+- `drafting_engine/persona.py` holds a hand-authored voice/lexicon seed and
+  `drafting_engine/context/about_me.md` (loaded via `draft.py`'s `_load_about_me()`)
+  holds real biographical facts (career/education/projects) - both are permanent
+  prompt inputs, separate from the corpus-derived `voice_profile`, and both are
+  gitignored (personal data) with only their `README.md`/structure tracked. A sibling
+  `documents/` folder at the repo root holds raw source files (CV, diplomas, LinkedIn
+  export) for the assistant to read from directly - also gitignored.
+
+## Switching drafting to Gemini (2 Sept 2026)
+
+Tested live with `DRAFT_LLM_PROVIDER=gemini`. Real findings, not assumptions:
+
+- **`gemini-pro-latest` resolves to `gemini-3.1-pro`, which has a hard 0 free-tier
+  quota** (`limit: 0` on both input tokens and requests, confirmed via the actual 429
+  error body) - it's billing-gated, the same pattern as the research grounding tool
+  hitting a paywall back in level 4. Not usable without enabling billing.
+- `gemini-flash-latest` is the strongest model confirmed free-tier accessible with this
+  key - noticeably better structured/fluent output than `gemini-flash-lite-latest`
+  (used for research scoring), at the cost of being slow: ~40s even for a trivial
+  3-word prompt (looks like real internal reasoning overhead, not just network
+  latency). The drafting call's timeout is 240s to accommodate this - 120s wasn't
+  enough and caused a real `ReadTimeout` on the first live test.
+- New `GEMINI_DRAFT_MODEL` env var lets drafting use a different (stronger) model than
+  `GEMINI_MODEL` (which stays on the cheap lite model for research scoring) - falls
+  back to `GEMINI_MODEL` then the lite default if unset.
+- **A real fabrication bug was caught and fixed while testing this**: the audit-gate
+  check (`_run_audit_call`) only ever received the drafted post text, never the
+  original topic/note it was drafted from - so it had no way to actually verify
+  whether something was invented. On `gemini-flash-latest` this let a fluent,
+  plausible-sounding fabricated anecdote (a fake "last week I ran a scenario analysis,
+  cost forty-five pence" scene, complete with specific invented numbers) sail straight
+  through undetected - a more capable model produces more convincing fabrications, not
+  fewer, so this bug mattered more here than it did on llama3's clumsier fabrications.
+  Fixed by passing `topic` into the audit call so gate 6 can do a direct, explicit
+  sentence-by-sentence comparison against the real input, not just judge the post in
+  isolation. Confirmed live: the identical topic that fabricated before now produces
+  grounded commentary/advice with no invented scene.

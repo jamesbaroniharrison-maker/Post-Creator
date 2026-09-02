@@ -3,3 +3,9 @@ __pycache__/
 *.py[cod]
 *.db
 .env
+
+# Personal source documents and living context - not for the repo, see the README
+# in each of these folders for why.
+documents/*
+!documents/README.md
+linkedin_content_engine/linkedin_content_engine/context/about_me.md
