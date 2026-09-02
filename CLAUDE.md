@@ -212,3 +212,36 @@ deleted (nothing left to create an account for) and `reflex-local-auth` dropped 
 If this ever needs to be reachable beyond localhost (a different machine, a real
 network), auth needs to come back before that happens - there's currently nothing
 stopping anyone who can reach the port from using the dashboard.
+
+## Month planning view + per-week catch-up button (2 Sept 2026)
+
+Request: "plan a month of posts out, not just a week... have a button to draft for
+that specific days posts... a draft this weeks post button if for whatever time they
+havent come up." Investigated first, before building: re-editing already worked on
+Review and the Accepted page (including published posts) via `post_editable_body` -
+that part needed no change, just confirming and documenting it in `HOW TO USE.txt`,
+since it wasn't obviously discoverable.
+
+The actual gap was the "Plan ahead" calendar only ever showed one week at a time,
+paged via the same `selected_week_offset`/`week_selector_bar` that also filters the
+Accepted-posts list above it - so planning and the accepted-post filter were coupled
+for no real reason. Decoupled them: `_reload_planned_notes` now loads across the full
+4-week horizon unconditionally (not tied to a selected week), and a new `month_plan`
+computed var (`WeekPlanView` per week, each holding its 7 `DayPlanView` days) replaces
+the old single-week `week_plan`. `week_selector_bar`/`selected_week_offset` still exist,
+now scoped purely to the Accepted-posts list.
+
+New per-week "Fill this week" button (`DashboardState.fill_week`, one instance per
+week section in the calendar) - request confirmed directly: pulls from the best
+unused topic bank rows first, falls back to a rotating prompt from
+`email_engine/reminder.py`'s `PROMPT_POOL` (reused rather than duplicated) if the
+bank's empty, generating however many posts a week is short of `WEEKLY_CAP`. A new
+module-level `_draft_from_bank_row` helper factors out the bank-drafting logic
+previously only inline in `generate_from_bank`, so both share it rather than
+duplicating the research/post-type/mark-used steps.
+
+Verified live: full `reflex run` boot, `/accepted` compiles and returns 200 with the
+new month view. Directly unit-tested the underlying query logic and
+`_draft_from_bank_row` outside the Reflex event wrapper (background events are awkward
+to invoke standalone) - confirmed the weekly-committed-count query, the topic-bank
+query, and the draft-and-mark-used flow all work end to end against the real database.

@@ -7,6 +7,7 @@ stats update) has to run end to end without touching code.
 
 import json
 import pathlib
+import random
 from datetime import datetime, timedelta, timezone
 
 import pydantic
@@ -20,10 +21,12 @@ from linkedin_content_engine.drafting_engine.pipeline import (
     generate_draft_with_research,
 )
 from linkedin_content_engine.drafting_engine.research import ResearchFinding, ResearchResult
+from linkedin_content_engine.email_engine.reminder import PROMPT_POOL
 from linkedin_content_engine.email_engine.settings import get_email_settings, save_email_settings
 from linkedin_content_engine.models import ForcedTopic, PlannedNote, Post, TopicBank
 from linkedin_content_engine.research_cron.pipeline import run_daily_research
 from linkedin_content_engine.scheduling import (
+    WEEKLY_CAP,
     allocate_accepted_posts,
     current_week_label,
     prune_rejected_posts,
@@ -101,13 +104,24 @@ class PlannedNoteView(pydantic.BaseModel):
 
 
 class DayPlanView(pydantic.BaseModel):
-    """One day cell in the 4-week planning calendar: the date, a friendly label,
+    """One day cell in the month planning calendar: the date, a friendly label,
     whether it's today, and the note attached to it (if any)."""
 
     date: str
     day_label: str  # "Mon 31 Aug"
     is_today: bool
     note: PlannedNoteView | None = None
+
+
+class WeekPlanView(pydantic.BaseModel):
+    """One week's section in the month planning calendar (request: "plan a month of
+    posts out, not just a week") - a label, its Monday date (for the per-week fill
+    button), and its 7 day cells."""
+
+    week_label: str
+    monday: str
+    already_scheduled: int  # accepted/published posts already locked into this week
+    days: list[DayPlanView] = []
 
 
 def _week_label(dt: datetime) -> str:
@@ -141,6 +155,25 @@ def _row_to_view(p: Post) -> PostView:
         media_pairing_label=humanize(p.media_pairing or ""),
         media_note=p.media_note or "",
     )
+
+
+def _draft_from_bank_row(bank_id: int, summary: str, source_title: str, source_url: str, category: str) -> None:
+    """Shared by generate_from_bank and fill_week - drafts from one topic bank row and
+    marks it used. Raises on failure so callers can decide how to report it, rather
+    than swallowing the error here."""
+    research = ResearchResult(
+        topic=summary,
+        status="ok",
+        findings=[ResearchFinding(title=source_title, url=source_url, content=summary)],
+    )
+    post_type = CATEGORY_TO_POST_TYPE.get(category, "ai_commentary")
+    generate_draft_with_research(summary, post_type, research, source_bank_id=bank_id)
+    with rx.session(url=config.db_url) as session:
+        row = session.get(TopicBank, bank_id)
+        row.used = True
+        row.date_used = datetime.now(timezone.utc)
+        session.add(row)
+        session.commit()
 
 
 class DashboardState(rx.State):
@@ -239,8 +272,10 @@ class DashboardState(rx.State):
 
     @rx.event
     def set_selected_week_offset(self, offset: int):
+        """Controls the Accepted-posts week filter only - the planning calendar below
+        shows the whole month regardless (request: "plan a month of posts out, not
+        just a week"), so this no longer needs to reload planned notes."""
         self.selected_week_offset = offset
-        self._reload_planned_notes()
 
     @rx.var
     def week_options(self) -> list[dict[str, str]]:
@@ -279,7 +314,9 @@ class DashboardState(rx.State):
     # about that new statement" / a Halloween-themed post pencilled in ahead of time) ----
 
     def _reload_planned_notes(self):
-        dates = week_dates(self.selected_week_monday)
+        """Loads notes across the whole month horizon (all 4 upcoming weeks), not just
+        one selected week - the planning calendar always shows the full month."""
+        dates = [d for monday in upcoming_week_mondays(4) for d in week_dates(monday)]
         with rx.session(url=config.db_url) as session:
             rows = session.exec(
                 sqlmodel.select(PlannedNote).where(sqlmodel.col(PlannedNote.target_date).in_(dates))
@@ -294,7 +331,7 @@ class DashboardState(rx.State):
             )
             for r in rows
         ]
-        # Pre-seed the draft-input dicts for every date in the visible week, so the
+        # Pre-seed the draft-input dicts for every date across the month, so the
         # frontend never indexes a missing dict key for a day with no note yet.
         self.note_drafts = {**{d: "" for d in dates}, **self.note_drafts}
         self.note_draft_post_types = {
@@ -303,21 +340,39 @@ class DashboardState(rx.State):
         }
 
     @rx.var
-    def week_plan(self) -> list[DayPlanView]:
+    def month_plan(self) -> list[WeekPlanView]:
+        """The full 4-week planning horizon, grouped by week, each with a "Fill this
+        week" entry point (request: "have a button per week")."""
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         by_date = {n.target_date: n for n in self.planned_notes}
-        days = []
-        for d in week_dates(self.selected_week_monday):
-            dt = datetime.strptime(d, "%Y-%m-%d")
-            days.append(
-                DayPlanView(
-                    date=d,
-                    day_label=dt.strftime("%a %d %b"),
-                    is_today=d == today,
-                    note=by_date.get(d),
+        scheduled_counts: dict[str, int] = {}
+        for p in self.accepted_posts:
+            if p.scheduled_week:
+                scheduled_counts[p.scheduled_week] = scheduled_counts.get(p.scheduled_week, 0) + 1
+
+        weeks = []
+        for monday in upcoming_week_mondays(4):
+            days = []
+            for d in week_dates(monday):
+                dt = datetime.strptime(d, "%Y-%m-%d")
+                days.append(
+                    DayPlanView(
+                        date=d,
+                        day_label=dt.strftime("%a %d %b"),
+                        is_today=d == today,
+                        note=by_date.get(d),
+                    )
+                )
+            label = "This week" if monday == current_week_label() else f"Week of {monday}"
+            weeks.append(
+                WeekPlanView(
+                    week_label=label,
+                    monday=monday,
+                    already_scheduled=scheduled_counts.get(monday, 0),
+                    days=days,
                 )
             )
-        return days
+        return weeks
 
     @rx.event
     def set_note_draft(self, date: str, value: str):
@@ -764,24 +819,67 @@ class DashboardState(rx.State):
                 bank_row.category,
             )
 
-        research = ResearchResult(
-            topic=summary,
-            status="ok",
-            findings=[ResearchFinding(title=source_title, url=source_url, content=summary)],
-        )
-        post_type = CATEGORY_TO_POST_TYPE.get(category, "ai_commentary")
-
         try:
-            generate_draft_with_research(summary, post_type, research, source_bank_id=bank_id)
-            with rx.session(url=config.db_url) as session:
-                row = session.get(TopicBank, bank_id)
-                row.used = True
-                row.date_used = datetime.now(timezone.utc)
-                session.add(row)
-                session.commit()
+            _draft_from_bank_row(bank_id, summary, source_title, source_url, category)
             message = "Draft generated from topic bank."
         except Exception as exc:  # noqa: BLE001 - surface any failure to the UI, don't crash the app
             message = f"Draft generation failed: {exc}"
+
+        async with self:
+            self.is_busy = False
+            self.status_message = message
+            self._reload_posts()
+            self._reload_bank()
+            self._reload_stats()
+
+    @rx.event(background=True)
+    async def fill_week(self, monday: str):
+        """Catch-up button (request: "a draft this week's post button if for whatever
+        time they haven't come up... have a button per week") - tops that week's
+        committed (accepted/published) post count up to the weekly cap, pulling from
+        the best unused topic bank rows first and falling back to a rotating personal-
+        reflection prompt (same pool the email reminder uses) if the bank is empty, so
+        the button never just does nothing."""
+        async with self:
+            self.is_busy = True
+            self.status_message = f"Filling the week of {monday}..."
+
+        with rx.session(url=config.db_url) as session:
+            committed = session.exec(
+                sqlmodel.select(sqlmodel.func.count())
+                .select_from(Post)
+                .where(Post.scheduled_week == monday)
+            ).one()
+            bank_rows = session.exec(
+                sqlmodel.select(TopicBank)
+                .where(TopicBank.used == False, TopicBank.tier != "discard")  # noqa: E712
+                .order_by(sqlmodel.col(TopicBank.tier).asc(), sqlmodel.col(TopicBank.date_found).desc())
+                .limit(WEEKLY_CAP)
+            ).all()
+            bank_data = [(r.id, r.summary, r.source_title, r.source_url, r.category) for r in bank_rows]
+
+        needed = max(0, WEEKLY_CAP - committed)
+        generated = 0
+        failed = False
+        for i in range(needed):
+            try:
+                if i < len(bank_data):
+                    _draft_from_bank_row(*bank_data[i])
+                else:
+                    generate_and_save_draft(
+                        random.choice(PROMPT_POOL), "personal_reflection", skip_research=True
+                    )
+                generated += 1
+            except Exception:  # noqa: BLE001 - keep going, report what actually landed
+                failed = True
+                break
+
+        if needed == 0:
+            message = f"Week of {monday} already has {committed}/{WEEKLY_CAP} posts committed."
+        elif failed:
+            message = f"Generated {generated} of {needed} needed for the week of {monday} before a failure - check Review."
+        else:
+            message = f"Generated {generated} draft(s) for the week of {monday} - check Review."
 
         async with self:
             self.is_busy = False

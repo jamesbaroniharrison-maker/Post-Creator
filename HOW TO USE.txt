@@ -72,17 +72,27 @@ ACCEPTED
       through posts that aren't live yet.
 
   For each post:
+    - You can still edit the text, hashtags, tags, and compliance note
+      here, even after it's been marked published - nothing is ever
+      locked. Click into a box, type, click away, it saves.
     - Click "Copy text" to copy it, then paste into LinkedIn yourself.
     - Once it's actually posted, click "Mark published".
     - Once published, come back later and type in the likes and
       comments it got, for your own records.
 
-  Further down is "Plan ahead" - a small calendar for the same 4
-  weeks. If you already know a date should be about something specific
-  (a project milestone, an event, whatever), type a quick note on that
-  day and save it. When you're ready, click "Generate draft" on that
-  day and it'll write the post using your note as the brief - so you
-  can tell the system what's coming before you'd normally think to.
+  Further down is "Plan ahead" - a full month laid out one week at a
+  time, top to bottom (not just the current week). For any day, if you
+  already know it should be about something specific (a project
+  milestone, an event, whatever), type a quick note and save it. When
+  you're ready, click "Generate draft" on that day and it'll write the
+  post using your note as the brief.
+
+  Each week also has its own "Fill this week" button. If a week's
+  gone quiet and it hasn't reached the usual 3-4 posts, click it and
+  the system drafts however many more it needs - pulling from the
+  topic bank first, or a rotating personal-reflection prompt if the
+  bank's empty - so a thin week never just goes uncovered. New drafts
+  always land in Review first, same as everything else.
 
 REJECTED
   Only the 5 most recent rejected posts are kept - anything older is

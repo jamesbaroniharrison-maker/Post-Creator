@@ -2,6 +2,7 @@
 
 import reflex as rx
 
+from linkedin_content_engine.scheduling import WEEKLY_CAP
 from linkedin_content_engine.dashboard.state import (
     POST_TYPES,
     REJECTION_REASONS,
@@ -9,6 +10,7 @@ from linkedin_content_engine.dashboard.state import (
     DashboardState,
     DayPlanView,
     PostView,
+    WeekPlanView,
 )
 
 PRIMARY_CTA = {"color_scheme": "bronze", "variant": "solid"}
@@ -414,20 +416,54 @@ def day_plan_cell(day: DayPlanView) -> rx.Component:
     )
 
 
-def planning_calendar() -> rx.Component:
+def week_plan_section(week: WeekPlanView) -> rx.Component:
+    """One week's section of the month planning calendar: a heading with how many
+    posts are already committed, a "Fill this week" catch-up button (request: "a
+    draft this weeks post button if for whatever time that they havent come up...
+    have a button per week"), and its 7 day cells."""
     return rx.vstack(
-        rx.text(
-            "Plan ahead - pencil in what a day should be about before it's time to draft it.",
-            size="2",
-            class_name="hud-muted",
+        rx.hstack(
+            rx.heading(week.week_label, size="3"),
+            rx.text(
+                f"{week.already_scheduled}/{WEEKLY_CAP} committed",
+                size="1",
+                class_name="hud-muted",
+            ),
+            rx.spacer(),
+            rx.button(
+                "Fill this week",
+                size="1",
+                on_click=DashboardState.fill_week(week.monday),
+                loading=DashboardState.is_busy,
+                **SECONDARY_CTA,
+            ),
+            width="100%",
+            align="center",
         ),
         rx.grid(
-            rx.foreach(DashboardState.week_plan, day_plan_cell),
+            rx.foreach(week.days, day_plan_cell),
             columns=rx.breakpoints(initial="1", sm="2", lg="4"),
             spacing="3",
             width="100%",
         ),
-        spacing="3",
+        spacing="2",
+        width="100%",
+    )
+
+
+def planning_calendar() -> rx.Component:
+    """The full month (4-week) planning horizon (request: "plan a month of posts out,
+    not just a week"), one section per week - not tied to the Accepted-posts week
+    filter above it, so the whole month is always visible without extra clicks."""
+    return rx.vstack(
+        rx.text(
+            "Plan ahead - pencil in what a day should be about before it's time to "
+            "draft it, or use \"Fill this week\" to catch a thin week up automatically.",
+            size="2",
+            class_name="hud-muted",
+        ),
+        rx.foreach(DashboardState.month_plan, week_plan_section),
+        spacing="5",
         width="100%",
     )
 
