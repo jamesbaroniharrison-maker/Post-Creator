@@ -10,12 +10,19 @@ one call handling your raw, unfiltered note before anything gets generalised.
 
 import json
 import os
+import random
 import re
 
 import dotenv
 import httpx
 
-from linkedin_content_engine.drafting_engine.persona import PERSONA_DESCRIPTION, PERSONA_EXEMPLARS
+from linkedin_content_engine.drafting_engine.persona import (
+    CADENCE_MECHANICS,
+    CHARACTERISTIC_LANGUAGE,
+    PERSONA_DESCRIPTION,
+    PERSONA_EXEMPLARS,
+    PROHIBITED_PATTERNS,
+)
 from linkedin_content_engine.drafting_engine.research import ResearchResult
 from linkedin_content_engine.drafting_engine.schema import DraftOutput
 
@@ -58,13 +65,17 @@ identify a real private individual, before the note is used to draft a LinkedIn 
 You do NOT write a post - you only rewrite the note itself, keeping every detail of the \
 story except identifying ones.
 
-Replace, if present:
-- A real person's name (a colleague, classmate, friend) -> "a colleague"/"a classmate"/ \
-"a friend", whichever fits
-- A specific place smaller than a region (a named employer, school, street) -> a vaguer \
-one ("a previous employer", "my course", "the north of England")
-- An exact monetary figure tied to that named individual -> "a significant amount" / \
-"a five-figure sum" (keep the rough scale if it matters to the story)
+MOST NOTES HAVE NOTHING TO SCRUB. If the note contains no real person's full name, no \
+specific place smaller than a region, and no exact monetary figure, return it \
+completely unchanged, character for character. Do not invent, add, generalise, or \
+"fill in" anything that isn't already in the note - your only job is removing \
+identifying details that are ALREADY THERE, never adding new scene-setting.
+
+If (and only if) something identifying IS present, generalise just that detail while \
+keeping everything else - a real name becomes a role-based reference that fits the \
+context (colleague/classmate/friend/family member), a specific place smaller than a \
+region becomes a broader, vaguer description of the same place, an exact monetary \
+figure tied to that person becomes an approximate scale instead.
 
 Do NOT change: the emotional content, the sequence of events, the author's own name, any \
 public company/organisation/university name mentioned in its public capacity, or any \
@@ -73,8 +84,8 @@ detail that isn't identifying.
 Respond with strict JSON only, no markdown fences: {"scrubbed_note": "..."}
 
 ---
-WORKED EXAMPLE (different domain, so you cannot copy it - apply the same kind of edit \
-to the real note below):
+WORKED EXAMPLE 1 (something to scrub - different domain, so you cannot copy it, apply \
+the same kind of edit to the real note below):
 
 Input note: "Spent an hour on a call with Graham Fielding from our Leeds office today - \
 his team's project, worth about £8,200 in saved contractor time, finally shipped after \
@@ -85,6 +96,17 @@ Correct output: {"scrubbed_note": "Spent an hour on a call with a colleague toda
 team's project, a significant amount of saved contractor time, finally shipped after \
 his manager had been chasing it for three weeks. He was so relieved he could barely \
 speak."}
+
+---
+WORKED EXAMPLE 2 (nothing to scrub - this is the common case, return unchanged):
+
+Input note: "Been thinking about how much easier it is to test a new idea properly \
+before committing real time to it these days. Feels like the barrier to just trying \
+something has dropped a lot."
+
+Correct output: {"scrubbed_note": "Been thinking about how much easier it is to test a \
+new idea properly before committing real time to it these days. Feels like the barrier \
+to just trying something has dropped a lot."}
 ---
 """
 
@@ -99,27 +121,20 @@ Gates (all must pass):
 3. Payoff: does the body actually deliver what the hook promised, not withhold it?
 4. Scannability: is it broken into short paragraphs, not dense walls of text?
 5. Banned patterns - fail if ANY of these appear anywhere in the post, not just as an \
-opening line: an em dash (—); "Most people think X, but actually Y" reversal framing; \
-a rhetorical question; corporate jargon (synergize, leverage, game-changer, unlock, \
-robust, scalable, empower/empowering, unlock the power of, breaking down barriers, \
-game-changing, revolutionize/revolutionizing); generic LinkedIn-influencer phrasing \
-("I'm thrilled/excited to", "it's an exciting time", "the future of X is here", "in \
-today's fast-paced world", "write their own story/narrative"); a forced conclusion \
-("In conclusion", "To sum it up", "TL;DR").
-6. Fabrication: does the post invent a specific person, anecdote, or event that isn't \
-actually present in the topic/note it was given? (Vague scene-setting like "a friend of \
-mine" invented purely to sound relatable counts as a fail here.)
-7. Speech test: does it read like an authentic person talking from real experience, not \
-marketing copy?"""
+opening line:
+__PROHIBITED_PATTERNS__
+6. Speech test: does it read like an authentic person talking from real experience, not \
+marketing copy?""".replace("__PROHIBITED_PATTERNS__", PROHIBITED_PATTERNS)
 
 _FUNNEL_GUIDANCE = {
-    "TOF": "Visibility - a broad lesson, a contrarian perspective, a personal inflection "
-    "point. No sales/promotional CTA of any kind.",
-    "MOF": "Trust - a repeatable framework, a step-by-step process, a teardown of how "
-    "something works. High-density, immediately usable.",
-    "BOF": "Credibility - a concrete result, a real project walkthrough, an honest lesson "
-    "learned. Still no hard sales CTA (this is a personal brand, not a business) - end "
-    "with a genuine, specific takeaway instead.",
+    "TOF": "Visibility & affinity - human dynamics, personal reflections, travel "
+    "observations, mindset, contrarian perspectives. No pitch links or sales CTAs.",
+    "MOF": "Authority & trust - tactical workflows, breakdowns of how people/systems "
+    "operate, teardowns. Provide immediately usable value.",
+    "BOF": "Proof & conversion - unvarnished results, metrics, case studies, solving "
+    "common buyer friction. A direct soft CTA is allowed here (e.g. book a call, "
+    "access an ungated breakdown) - but only if the topic itself is actually about a "
+    "real project/result; never invent one just to justify a CTA.",
 }
 
 _HOOK_TEMPLATES = {
@@ -136,12 +151,12 @@ _HOOK_TEMPLATES = {
 }
 
 _LENGTH_GUIDANCE = {
-    "micro": "80-150 words. Rapid and punchy: one context sentence, then 3-4 bulleted "
-    "truths, hard exit, no recap.",
-    "standard": "180-300 words. Setup, problem, a short framework or breakdown, one "
-    "clear takeaway.",
-    "deep": "350-550 words. A fuller teardown or playbook with concrete steps or "
-    "numbers - dense, not padded.",
+    "micro": "80-140 words. Rapid and blunt: quick context, then 3 clear points, "
+    "direct exit, no recap.",
+    "standard": "160-280 words. A conversational story or teardown: setup, friction, "
+    "turning point, rule of thumb.",
+    "deep": "300-450 words. An in-depth procedural or unit-economic teardown with "
+    "step-by-step detail - dense, not padded.",
 }
 
 _FORMAT_GUIDANCE = {
@@ -160,6 +175,13 @@ are drafting only.
 PERSONA (who's writing - always true, independent of the stats below):
 {persona}
 
+CHARACTERISTIC LANGUAGE (real words/phrases in this voice - use naturally, don't force \
+several into one post):
+{characteristic_language}
+
+DEFAULT CADENCE:
+{cadence_mechanics}
+
 VOICE PROFILE (from statistical analysis of their real posts, where available):
 - Tone: {tone}
 - Rhetorical habits: {rhetorical_patterns}
@@ -170,6 +192,11 @@ REAL EXAMPLES OF THEIR VOICE:
 ---
 {few_shot}
 ---
+These examples are a STYLE AND CADENCE reference only - study how they open, pace \
+paragraphs, and land an ending. Do NOT reuse their actual sentences, stories, numbers, \
+or structure, and do NOT copy an example's opening line as your own opening line. The \
+post you write must be entirely new content about the actual topic given below, in a \
+similar voice - never a rewrite or continuation of one of these examples.
 
 CONTENT ANGLE: the author writes mainly about AI - with a human-in-the-loop, \
 AI-augments-rather-than-replaces lean, but without ignoring the real disruption/ \
@@ -214,16 +241,10 @@ Do NOT invent a specific person, anecdote, or event that isn't actually present 
 topic/note below - if the topic doesn't mention a friend/colleague/specific incident, \
 don't make one up just to sound relatable. Write it as the author's own direct \
 observation instead.
-4. NEVER use these, even if it feels natural, anywhere in the post, not just as an \
-opening line: em dashes; "Most people think X, but actually Y" reversal framing; \
-rhetorical questions; corporate jargon (synergize, leverage, game-changer, unlock, \
-robust, scalable, empower/empowering, unlock the power of, breaking down barriers, \
-game-changing, revolutionize/revolutionizing); generic LinkedIn-influencer phrasing \
-("I'm thrilled/excited to", "it's an exciting time", "the future of X is here", "in \
-today's fast-paced world", "write their own story/narrative"); forced conclusions \
-("In conclusion", "To sum it up", "TL;DR"). The persona above is explicitly allergic to \
-this kind of phrasing - if a sentence sounds like generic LinkedIn-influencer copy, \
-rewrite it plainer.
+4. NEVER use any of these, anywhere in the post, not just as an opening line:
+{prohibited_patterns}
+The persona above is explicitly allergic to this kind of phrasing - if a sentence \
+sounds like generic LinkedIn-influencer copy, rewrite it plainer.
 5. Do not mention that you are an AI or that this is a draft, inside "text".
 6. PRIVACY - if this topic is the author's own raw personal/work note (not \
 research-backed), never name a real private third party (a colleague, classmate, \
@@ -420,12 +441,20 @@ def draft_post(
     media_pairing = rotation["media_pairing"]
 
     # Persona exemplars are hand-authored, not derived from the corpus, so they're
-    # always included alongside whatever real posts the voice profile has - not
-    # replaced by them as the corpus grows.
-    few_shot_examples = [*PERSONA_EXEMPLARS, *voice_profile.get("few_shot_examples", [])]
+    # always available alongside whatever real posts the voice profile has - not
+    # replaced by them as the corpus grows. Sampling only 2 per call (rather than
+    # dumping the full pool in every time) matters in practice, confirmed live: with
+    # all 4 persona exemplars shown every call, the model repeatedly plagiarised one
+    # almost verbatim as its opening instead of just matching its style - a smaller,
+    # rotating sample gives it less of a single complete example to copy wholesale.
+    _few_shot_pool = [*PERSONA_EXEMPLARS, *voice_profile.get("few_shot_examples", [])]
+    few_shot_examples = random.sample(_few_shot_pool, min(2, len(_few_shot_pool)))
 
     system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(
         persona=PERSONA_DESCRIPTION,
+        characteristic_language=CHARACTERISTIC_LANGUAGE,
+        cadence_mechanics=CADENCE_MECHANICS,
+        prohibited_patterns=PROHIBITED_PATTERNS,
         tone=", ".join(close_read.get("tone_descriptors", [])) or "not yet available",
         rhetorical_patterns="; ".join(close_read.get("rhetorical_patterns", [])) or "not yet available",
         avoid=", ".join(close_read.get("things_to_avoid", [])) or "not yet available",
@@ -471,6 +500,13 @@ def draft_post(
     # "hashtags" must not include the "#" symbol per the schema - strip it
     # deterministically rather than trust the model followed that instruction.
     draft.hashtags = [h.lstrip("#") for h in draft.hashtags]
+
+    # Deterministic backstop: a topic with no research findings has nothing real to
+    # cite, so any "sources" the model returned here are fabricated - confirmed live
+    # (a fake researchgate.org URL was invented for a --skip-research personal post).
+    # Don't trust the model's own compliance with the "empty list if none used" rule.
+    if not research.findings:
+        draft.sources = []
 
     if not research.findings and not scrub_verified:
         draft.compliance_note = (
