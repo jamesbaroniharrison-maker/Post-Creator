@@ -2,7 +2,6 @@
 customizable email reminder timing."""
 
 import reflex as rx
-import reflex_local_auth
 
 from linkedin_content_engine.dashboard.components import PRIMARY_CTA, SECONDARY_CTA, page_shell
 from linkedin_content_engine.dashboard.state import (
@@ -204,6 +203,5 @@ def _email_settings() -> rx.Component:
     )
 
 
-@reflex_local_auth.require_login
 def settings_page() -> rx.Component:
     return page_shell("/settings", _quick_actions(), _email_settings())

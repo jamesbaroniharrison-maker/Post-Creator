@@ -47,7 +47,7 @@ echo.
 echo ================================================================
 echo   Ready! Opening your browser now.
 echo ================================================================
-start http://localhost:3000/login
+start http://localhost:3000/
 echo.
 echo You can close THIS window now.
 echo Just leave the OTHER window (titled "SERVER") open in the

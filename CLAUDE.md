@@ -199,3 +199,16 @@ Tested live with `DRAFT_LLM_PROVIDER=gemini`. Real findings, not assumptions:
   sentence-by-sentence comparison against the real input, not just judge the post in
   isolation. Confirmed live: the identical topic that fabricated before now produces
   grounded commentary/advice with no invented scene.
+
+## Login removed (2 Sept 2026)
+
+Request: "it's locally hosted, removed the login page." `reflex_local_auth` is fully
+out - no import, no `/login` route, no logout button, and the `localuser`/
+`localauthsession` tables are dropped (migration `38d872cfac60`, applied - confirmed
+live via direct sqlite3 query that both tables are gone). `scripts/create_account.py`
+deleted (nothing left to create an account for) and `reflex-local-auth` dropped from
+`requirements.txt`. `Start Content Engine.bat` now opens `/` instead of `/login`.
+
+If this ever needs to be reachable beyond localhost (a different machine, a real
+network), auth needs to come back before that happens - there's currently nothing
+stopping anyone who can reach the port from using the dashboard.

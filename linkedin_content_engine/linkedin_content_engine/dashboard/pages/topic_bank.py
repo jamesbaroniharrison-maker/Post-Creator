@@ -1,7 +1,6 @@
 """Topic bank: unused research findings, high tier first."""
 
 import reflex as rx
-import reflex_local_auth
 
 from linkedin_content_engine.dashboard.components import PRIMARY_CTA, page_shell
 from linkedin_content_engine.dashboard.state import BankView, DashboardState
@@ -39,7 +38,6 @@ def _bank_row_card(row: BankView) -> rx.Component:
     )
 
 
-@reflex_local_auth.require_login
 def topic_bank_page() -> rx.Component:
     body = rx.cond(
         DashboardState.bank_rows.length() > 0,
