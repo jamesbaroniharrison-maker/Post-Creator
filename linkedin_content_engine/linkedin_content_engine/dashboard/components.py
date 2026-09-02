@@ -321,20 +321,25 @@ def accepted_filter_bar() -> rx.Component:
 
 def week_selector_bar() -> rx.Component:
     """This week / next week / +2 / +3 - request: 'select through the weeks almost
-    like a calendar... four weeks you can look at and plan ahead for'."""
+    like a calendar... four weeks you can look at and plan ahead for'.
+
+    Unrolled as 4 static buttons (always exactly 4 weeks) rather than rx.foreach over
+    DashboardState.week_options - visual review showed the active week never rendered
+    solid the way the (plain Python loop, no foreach) filter bar below it does. The
+    foreach version compared a dict-indexed loop-var string cast via .to(int) against
+    the state int; this compares the state int directly against a known Python int per
+    button, the same reliable pattern the filter bar already uses."""
     return rx.hstack(
-        rx.foreach(
-            DashboardState.week_options,
-            lambda w: rx.button(
-                w["label"],
+        *[
+            rx.button(
+                DashboardState.week_options[i]["label"],
                 size="2",
-                on_click=DashboardState.set_selected_week_offset(w["offset"].to(int)),
-                variant=rx.cond(
-                    DashboardState.selected_week_offset == w["offset"].to(int), "solid", "outline"
-                ),
+                on_click=DashboardState.set_selected_week_offset(i),
+                variant=rx.cond(DashboardState.selected_week_offset == i, "solid", "outline"),
                 color_scheme="bronze",
-            ),
-        ),
+            )
+            for i in range(4)
+        ],
         spacing="2",
         wrap="wrap",
     )

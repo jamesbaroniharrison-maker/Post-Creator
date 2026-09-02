@@ -9,6 +9,9 @@ from linkedin_content_engine.dashboard.state import POST_TYPES, DashboardState
 
 
 def _stats_panel() -> rx.Component:
+    """Split into two grids matching the natural 4-then-3 grouping (pipeline counts,
+    then performance metrics) instead of one 4-column grid, which left a 7th-item gap
+    dangling alone in a half-empty second row."""
     s = DashboardState.stats
     return rx.card(
         rx.vstack(
@@ -18,10 +21,15 @@ def _stats_panel() -> rx.Component:
                 stat_card("Approved", s["approved"]),
                 stat_card("Published", s["published"]),
                 stat_card("Rejected", s["rejected"]),
+                columns=rx.breakpoints(initial="2", sm="4"),
+                spacing="3",
+                width="100%",
+            ),
+            rx.grid(
                 stat_card("Acceptance rate", s["acceptance_rate"]),
                 stat_card("Avg time to review", s["avg_time_to_review"]),
                 stat_card("Avg time to publish", s["avg_time_to_publish"]),
-                columns=rx.breakpoints(initial="2", sm="4"),
+                columns=rx.breakpoints(initial="1", sm="3"),
                 spacing="3",
                 width="100%",
             ),
