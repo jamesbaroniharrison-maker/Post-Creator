@@ -1,7 +1,11 @@
 """Research call: finds current, source-traceable facts for a topic via Tavily.
 
-Restricted to the trusted-source allow list below, so nothing from generic SEO/
-comparison content or unmoderated forums can end up cited in a post.
+Open web search (request: "open up where you can get info from"), not restricted to a
+narrow allow list - but specific low-reputation/non-primary source categories are
+explicitly excluded (request: "remove certain websites like wikipedia and other
+non-reputable websites"). The scorer (research_cron/scorer.py) is the other half of
+this - it does the substantive quality judgment on whatever comes back, so opening the
+search up shifts more of that weight onto scoring, not less scrutiny overall.
 """
 
 import os
@@ -17,40 +21,28 @@ from linkedin_content_engine.usage_tracking import record_tavily_call, tavily_qu
 # call it here too so this works standalone regardless of import order.
 dotenv.load_dotenv()
 
-# Grouped by why each one is trustworthy enough to cite in a post - no generic SEO/
-# comparison content or unmoderated forums.
-TRUSTED_DOMAINS = [
-    # Tech/AI trade press and analysis
-    "techcrunch.com",
-    "theverge.com",
-    "arstechnica.com",
-    "wired.com",
-    "technologyreview.com",  # MIT Technology Review
-    "stratechery.com",
-    "venturebeat.com",
-    "semianalysis.com",
-    # Primary research / labs' own announcements
-    "arxiv.org",
-    "openai.com",
-    "anthropic.com",
-    "deepmind.google",
-    "ai.meta.com",
-    "blog.google",
-    "huggingface.co",
-    "nature.com",
-    # UK policy / government / research bodies
-    "gov.uk",
-    "ons.gov.uk",
-    "turing.ac.uk",  # the Alan Turing Institute
-    # Business/market and future-of-work coverage
-    "reuters.com",
-    "bloomberg.com",
-    "mckinsey.com",
-    "weforum.org",
-    # Mainstream UK news
-    "bbc.co.uk",
-    "theguardian.com",
-    "ft.com",
+# Deny list, not an allow list - excluded because they're tertiary/aggregated,
+# unmoderated user-generated content, or generic SEO/comparison content rather than a
+# primary source, not because the topic is wrong. Grouped by why.
+EXCLUDED_DOMAINS = [
+    # Tertiary/aggregated reference content - useful as a starting point for a human,
+    # not as a citable source for a post
+    "wikipedia.org",
+    "wikihow.com",
+    "britannica.com",
+    # Unmoderated user-generated content / forums - anyone can post anything
+    "reddit.com",
+    "quora.com",
+    "answers.com",
+    "ask.com",
+    "pinterest.com",
+    # Open self-publishing platforms - quality varies wildly, no editorial process
+    "medium.com",
+    "substack.com",
+    # Generic SEO/listicle/comparison content, not primary reporting or research
+    "buzzfeed.com",
+    "wordstream.com",
+    "hubspot.com",
 ]
 
 
@@ -67,7 +59,7 @@ class ResearchResult(pydantic.BaseModel):
 
 
 def research_topic(topic: str, max_results: int = 5) -> ResearchResult:
-    """Search only the trusted domains for current, citable facts about a topic."""
+    """Search the open web (minus EXCLUDED_DOMAINS) for current, citable facts."""
     api_key = os.environ.get("TAVILY_API_KEY")
     if not api_key:
         return ResearchResult(topic=topic, status="unavailable")
@@ -81,7 +73,7 @@ def research_topic(topic: str, max_results: int = 5) -> ResearchResult:
                 "api_key": api_key,
                 "query": topic,
                 "max_results": max_results,
-                "include_domains": TRUSTED_DOMAINS,
+                "exclude_domains": EXCLUDED_DOMAINS,
             },
             timeout=30,
         )

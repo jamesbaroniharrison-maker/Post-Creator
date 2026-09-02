@@ -31,14 +31,23 @@ be discarded just for not being from today. Only downgrade for staleness when th
 article itself is clearly out of date (e.g. reporting on an award/deadline/figure that
 has since been superseded), not simply because a few days or weeks have passed.
 
+Search results are NOT pre-filtered to a curated source list - only a small deny list \
+of unmoderated/low-effort sources is excluded upstream, so judge source credibility \
+yourself as part of scoring. Discard (regardless of how interesting the claim sounds) \
+if the source is an unattributed content-marketing/SEO blog, a personal blog with no \
+editorial process, or otherwise can't be reasonably traced to a real publication, \
+research body, company, or named author. Prefer primary reporting, official company/lab \
+announcements, and established publications over aggregators or secondary write-ups of \
+someone else's story.
+
 Classify into exactly one tier:
 - "high": specific, current (today to ~1 week old, or older but still fully valid and \
   timely), real post potential - a concrete event, stat, or announcement someone could \
   write a post about now
 - "mid": relevant and still valid, but either less time-sensitive or noticeably older \
   (roughly 1-4 weeks) - worth banking rather than posting immediately
-- "discard": off-topic, too generic/vague, low quality, or genuinely stale (the specific \
-  facts in it are no longer current/accurate)
+- "discard": off-topic, too generic/vague, low quality, from a non-credible source, or \
+  genuinely stale (the specific facts in it are no longer current/accurate)
 
 Classify into exactly one category:
 - "ai": AI/tech product, research, or policy news
@@ -48,7 +57,7 @@ Write a 1-2 sentence factual summary suitable for banking (not a draft post - ju
 the finding actually says).
 
 Respond with strict JSON only, no markdown fences:
-{"tier": "high|mid|discard", "category": "industry|company", "summary": "..."}"""
+{"tier": "high|mid|discard", "category": "ai|market", "summary": "..."}"""
 
 
 class ScoreResult(pydantic.BaseModel):

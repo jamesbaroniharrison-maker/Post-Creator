@@ -57,16 +57,16 @@ dashboard.
 Runs once a day, continuously building a backlog, so the weekly shortlist picks from
 something already curated instead of researching from scratch under time pressure.
 
-**Trusted sources** (`drafting_engine/research.py` `TRUSTED_DOMAINS` is the live list —
-this is a summary):
-
-| Allow | Deny |
-|---|---|
-| Tech/AI trade press (TechCrunch, The Verge, Ars Technica, Wired, MIT Technology Review, Stratechery, VentureBeat, SemiAnalysis) | Generic SEO/comparison content |
-| Primary sources (arXiv, the major labs' own blogs, Hugging Face, Nature) | Unmoderated forums as factual sources |
-| UK policy/research bodies (gov.uk, ONS, the Alan Turing Institute) | Any source that can't be traced to a real publication or body |
-| Business/market coverage (Reuters, Bloomberg, McKinsey, WEF) | |
-| Mainstream news (BBC, The Guardian, FT) | |
+**Source policy**: open web search, not restricted to a curated allow list (request:
+"open up where you can get info from") — `drafting_engine/research.py`'s
+`EXCLUDED_DOMAINS` is a deny list instead, excluding specific low-reputation/
+non-primary categories: tertiary reference content (Wikipedia, WikiHow, Britannica),
+unmoderated user-generated content (Reddit, Quora, Answers.com, Ask.com, Pinterest),
+open self-publishing platforms with no editorial process (Medium, Substack), and
+generic SEO/listicle/content-marketing sites (BuzzFeed, WordStream, HubSpot). Opening
+the search up shifts more of the quality judgment onto scoring (below), which now
+explicitly evaluates source credibility itself rather than relying on a pre-filtered
+list.
 
 **Scoring**: every finding a daily search returns gets classified — **High** (specific,
 current — today to ~1 week old, or older but still fully valid and timely — real post
@@ -177,9 +177,9 @@ codebase.
 | Layer | Choice | Why |
 |---|---|---|
 | Language | Python, throughout | One codebase, VS Code-native |
-| Backend + dashboard | Reflex (→ FastAPI + React/Next.js) | Real auth, still pure Python to write |
+| Backend + dashboard | Reflex (→ FastAPI + React/Next.js) | Localhost-only, single-user, no login (still pure Python to write) |
 | Drafting | Self-hosted Ollama (`llama3`), switchable to Gemini via `DRAFT_LLM_PROVIDER` | Free, local, keeps raw personal notes off third-party APIs by default |
-| Research | Tavily search API, restricted to a trusted-domain allow list | Genuinely free (1000 searches/month), built for feeding LLMs |
+| Research | Tavily search API, open web with a deny list for low-reputation sources | Genuinely free (1000 searches/month), built for feeding LLMs |
 | Scoring / photo captioning | Gemini free tier (`gemini-flash-lite-latest`) | Free-tier API is fine here — no sensitive personal writing passes through these two calls |
 | Transcription | Self-hosted faster-whisper (open weights) | Genuinely free, nothing leaves the machine |
 | Database | SQLite | Free, no extra service needed at this scale |

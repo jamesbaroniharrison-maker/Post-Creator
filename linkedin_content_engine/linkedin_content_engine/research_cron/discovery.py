@@ -1,5 +1,6 @@
-"""Daily discovery search: Tavily's news mode, restricted to the trusted-domain allow
-list (reused from the level 4 drafting engine's research module, spec Â§3a).
+"""Daily discovery search: Tavily's news mode, open web minus EXCLUDED_DOMAINS (reused
+from the level 4 drafting engine's research module - see research.py for why this is a
+deny list, not an allow list).
 """
 
 import os
@@ -8,7 +9,7 @@ import dotenv
 import httpx
 import pydantic
 
-from linkedin_content_engine.drafting_engine.research import TRUSTED_DOMAINS
+from linkedin_content_engine.drafting_engine.research import EXCLUDED_DOMAINS
 from linkedin_content_engine.usage_tracking import record_tavily_call, tavily_quota_available
 
 dotenv.load_dotenv()
@@ -22,7 +23,7 @@ class DiscoveredItem(pydantic.BaseModel):
 
 
 def discover(query: str, days: int = 3, max_results: int = 5) -> list[DiscoveredItem]:
-    """Search trusted sources for items from the last `days` days.
+    """Search the open web (minus EXCLUDED_DOMAINS) for items from the last `days` days.
 
     3 days (not 1) so genuinely recent-but-not-literally-today items aren't missed -
     the scorer (see scorer.py) is what actually judges "is this still worth posting
@@ -41,7 +42,7 @@ def discover(query: str, days: int = 3, max_results: int = 5) -> list[Discovered
                 "topic": "news",
                 "days": days,
                 "max_results": max_results,
-                "include_domains": TRUSTED_DOMAINS,
+                "exclude_domains": EXCLUDED_DOMAINS,
             },
             timeout=30,
         )
