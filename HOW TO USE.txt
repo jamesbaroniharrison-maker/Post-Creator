@@ -1,56 +1,14 @@
 ====================================================================
-  WPA CONTENT ENGINE - YOUR GUIDE
+  LINKEDIN CONTENT ENGINE - YOUR GUIDE
 ====================================================================
-This covers everything: setting it up on your computer, and how to
-use every part of it day to day. No coding knowledge needed for any
-of it - the "setup" section is best done sitting with James once,
-after that you'll never need to touch any of that again.
+This covers everything: starting the app and using every part of it
+day to day.
 
 ====================================================================
-PART 1 - ONE-TIME SETUP (do this with James)
+PART 1 - STARTING THE APP
 ====================================================================
-
-WHAT YOU NEED TO CREATE
----------------------------------------------------------------------
-A few accounts need to be in YOUR name, since this is your business.
-James will talk you through each of these when you sit down together,
-but for reference, here's the full list - all free:
-
-- GitHub (github.com) - where the program's code lives. James will
-  send you a "transfer" invite - you just accept it (check your email
-  / github.com notifications), then add James back as a collaborator
-  so he can keep helping (Settings > Collaborators > add his
-  username).
-- Google AI Studio (aistudio.google.com) - powers some of the
-  research and photo-reading behind the scenes.
-- Tavily (tavily.com) - does the actual news/web searching.
-- A dedicated Gmail address (not your personal one) - this is what
-  the reminder emails get sent from.
-
-None of these need any technical knowledge to sign up for - just an
-email address and a couple of clicks each. The bit that connects them
-to the program (typing the right codes into the right place) is the
-part James does with you.
-
-Everything else technical (installing the program itself, the
-research/writing tools it uses, etc.) is a one-time job James does
-with you directly - it involves installing a few things on your
-computer that aren't realistic to do from a written guide. Once it's
-done, you'll never see any of that again - you'll just use the app
-like any other program.
-
-WHAT YOU'LL END UP WITH
----------------------------------------------------------------------
-- A shortcut on your desktop to start the app
-- A username and password to log in
-- All your existing content already there waiting (if James copied
-  it across) - so you're not starting from zero
-
-====================================================================
-PART 2 - STARTING THE APP
-====================================================================
-1. Find the file called "Start WPA Content Engine.bat" (or the
-   shortcut on your desktop if you made one).
+1. Find the file called "Start Content Engine.bat" in the project
+   folder (or the shortcut on your desktop if you made one).
    TIP: right-click it and choose "Send to > Desktop (create
    shortcut)" so you always have an icon and never need to hunt for
    the folder.
@@ -66,14 +24,12 @@ PART 2 - STARTING THE APP
 
 LOGGING IN
 ---------------------------------------------------------------------
-Username: ben
-Password: (given to you separately - keep it somewhere safe)
-
-If you forget the password, contact James - it can be reset, but
-there's no "forgot password" link, since this only has one user.
+Use the username and password you set up. If you forget the
+password, there's no "forgot password" link (single-user system) -
+it needs a direct database fix.
 
 ====================================================================
-PART 3 - THE PAGES
+PART 2 - THE PAGES
 ====================================================================
 Along the top of every page is a menu: Home, Review, Accepted,
 Rejected, Topic Bank, Past Weeks, Settings. Click any of them to jump
@@ -89,7 +45,9 @@ HOME
 
 REVIEW
   Every draft waiting for a decision, grouped by the day it's
-  suggested for. For each one you can:
+  suggested for. Each card also shows the content-framework tags for
+  that post (funnel stage, hook style, length, format, media pairing)
+  so you can see why it's shaped the way it is. For each one you can:
     - Edit the text directly - click into the box and type. It saves
       automatically when you click away.
     - Add or remove hashtags and tags - type into the small box and
@@ -125,11 +83,10 @@ ACCEPTED
 
   Further down is "Plan ahead" - a small calendar for the same 4
   weeks. If you already know a date should be about something specific
-  (a seasonal post, a company announcement, whatever), type a quick
-  note on that day and save it. When you're ready, click "Generate
-  draft" on that day and it'll write the post using your note as the
-  brief - so you can tell the system what's coming before you'd
-  normally think to.
+  (a project milestone, an event, whatever), type a quick note on that
+  day and save it. When you're ready, click "Generate draft" on that
+  day and it'll write the post using your note as the brief - so you
+  can tell the system what's coming before you'd normally think to.
 
 REJECTED
   Only the 5 most recent rejected posts are kept - anything older is
@@ -137,9 +94,9 @@ REJECTED
   still click "Reuse as new post" on any of them to have another go.
 
 TOPIC BANK
-  Ideas the system has already found and scored, that haven't turned
-  into a draft yet. Click "Generate draft" on any of them to turn it
-  into a real post.
+  Ideas the system has already found and scored (AI news or broader
+  market news), that haven't turned into a draft yet. Click "Generate
+  draft" on any of them to turn it into a real post.
 
 PAST WEEKS
   Everything from the last 6 weeks, whatever happened to it -
@@ -152,7 +109,7 @@ SETTINGS
   Quick Actions:
     - "Generate a post now" - type in a topic, pick a post type, and
       click "Research + draft". It'll research the topic and write a
-      draft post in your voice, usually within a minute.
+      draft post in your voice, usually within a minute or two.
     - "Run research now" - normally the system checks for news once a
       day by itself. This button makes it check right now instead of
       waiting.
@@ -172,7 +129,7 @@ SETTINGS
     "Save".
 
 ====================================================================
-PART 4 - CLOSING THE APP
+PART 3 - CLOSING THE APP
 ====================================================================
 When you're done, you can just close the browser tab. If you also
 want to shut down the black "SERVER" window, that's fine too - it'll
@@ -180,11 +137,12 @@ just mean the app isn't reachable again until you double-click the
 starter file next time.
 
 ====================================================================
-PART 5 - IF SOMETHING GOES WRONG
+PART 4 - IF SOMETHING GOES WRONG
 ====================================================================
 - If a page looks broken or shows an error message, try refreshing
   it first.
 - If that doesn't help, close everything (the browser tab and the
   black SERVER window) and double-click the starter file again.
-- If it still doesn't work, take a screenshot of whatever error
-  you're seeing and send it to James.
+- If drafting fails, check that Ollama is actually running
+  (`ollama list` in a terminal should show at least one model - if
+  it's empty, run `ollama pull llama3` and try again).
