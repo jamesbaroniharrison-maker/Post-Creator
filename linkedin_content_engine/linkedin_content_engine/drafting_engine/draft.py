@@ -173,12 +173,18 @@ _HOOK_TEMPLATES = {
 }
 
 _LENGTH_GUIDANCE = {
-    "micro": "80-140 words. Rapid and blunt: quick context, then 3 clear points, "
-    "direct exit, no recap.",
-    "standard": "160-280 words. A conversational story or teardown: setup, friction, "
-    "turning point, rule of thumb.",
-    "deep": "300-450 words. An in-depth procedural or unit-economic teardown with "
-    "step-by-step detail - dense, not padded.",
+    "micro": "100-160 words (roughly 650-1,050 characters - comfortably clear of the "
+    "under-500-character range LinkedIn's algorithm tends to read as low-effort). "
+    "Rapid and blunt: quick context, then 3 clear points, direct exit, no recap.",
+    "standard": "200-300 words (roughly 1,300-1,900 characters - this is the real "
+    "engagement sweet spot for a LinkedIn text post, and should be where most posts "
+    "land). A conversational story or teardown: setup, friction, turning point, rule "
+    "of thumb.",
+    "deep": "320-420 words (roughly 2,000-2,500 characters - stay under 2,500, "
+    "completion/engagement drops off past that even though LinkedIn allows up to "
+    "3,000). Reserved for genuinely deserving a full teardown - an in-depth "
+    "procedural or unit-economic breakdown with step-by-step detail, dense, not "
+    "padded to hit the length.",
 }
 
 _FORMAT_GUIDANCE = {
@@ -249,7 +255,10 @@ Order: Hook -> Context/Setup -> Value Delivery -> Proof/Support -> Ending.
 
 === THIS POST'S ASSIGNED VARIABLES (fixed - do not pick your own) ===
 - Funnel stage: {funnel_stage} - {funnel_guidance}
-- Hook posture: {hook_posture} - {hook_template}
+- Hook posture: {hook_posture} - {hook_template} LinkedIn truncates behind a "See \
+more" link after roughly 140-210 characters on both mobile and desktop - the opening \
+sentence or two must work as a complete, compelling hook on its own within that \
+window, since that's all a scrolling reader sees before deciding whether to expand.
 - Length: {length_bucket} - {length_guidance}
 - Structural format: {structural_format} - {format_guidance}
 - Media pairing: {media_pairing} - describe in "media_note" what the actual image/ \

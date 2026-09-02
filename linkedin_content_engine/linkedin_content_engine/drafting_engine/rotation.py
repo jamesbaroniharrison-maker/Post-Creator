@@ -9,7 +9,7 @@ the rotation itself never touches the LLM.
 """
 
 import random
-from datetime import date
+from datetime import date, datetime, timezone
 
 import reflex as rx
 import sqlmodel
@@ -27,6 +27,15 @@ HOOK_POSTURES = [
 LENGTH_BUCKETS = ["micro", "standard", "deep"]
 STRUCTURAL_FORMATS = ["narrative", "skimmable_index", "binary_contrast"]
 MEDIA_PAIRINGS = ["candid_photo", "carousel", "infographic", "screenshot", "chart", "text_only"]
+
+# Length isn't rotated on the same "never repeat the last one" anti-fatigue basis as
+# the other variables - that would fight against actually landing in the sweet spot
+# most of the time. Instead it's weighted (request: "ideally sit in the sweet spot but
+# also have long and short ones... long on very occasion") plus a hard monthly cap on
+# "deep" (request: "once to max twice a month"), checked against real post history,
+# not just excluded from the last 3.
+_LENGTH_WEIGHTS = {"micro": 0.25, "standard": 0.68, "deep": 0.07}
+_DEEP_MONTHLY_CAP = 2
 
 # Weekly funnel ratio rotation (Alpha/Beta/Gamma), so weeks lean differently toward
 # visibility/trust/credibility rather than every week looking the same.
@@ -57,12 +66,37 @@ def _pick_excluding(options: list[str], used: set[str]) -> str:
     return random.choice(remaining)
 
 
+def _deep_posts_this_month() -> int:
+    month_start = datetime.now(timezone.utc).replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0
+    )
+    with rx.session(url=config.db_url) as session:
+        rows = session.exec(
+            sqlmodel.select(Post).where(
+                Post.length_bucket == "deep",
+                sqlmodel.col(Post.created_at) >= month_start,
+            )
+        ).all()
+    return len(rows)
+
+
+def _pick_length_bucket() -> str:
+    """Weighted toward the "sweet spot" (standard), with short posts as a regular but
+    less frequent change of pace, and long posts deliberately rare - hard-capped at
+    _DEEP_MONTHLY_CAP for the calendar month, not just left to chance."""
+    options = list(LENGTH_BUCKETS)
+    if _deep_posts_this_month() >= _DEEP_MONTHLY_CAP:
+        options.remove("deep")
+    weights = [_LENGTH_WEIGHTS[o] for o in options]
+    return random.choices(options, weights=weights, k=1)[0]
+
+
 def assign_rotation(scheduled_week: str | None = None) -> dict:
     """Pick this post's funnel stage + THBM execution variables, excluding whatever the
-    last 3 posts used, per the framework's anti-fatigue rule."""
+    last 3 posts used, per the framework's anti-fatigue rule (length is handled
+    separately - see _pick_length_bucket)."""
     recent = _recent_posts()
     used_hooks = {p.hook_posture for p in recent if p.hook_posture}
-    used_lengths = {p.length_bucket for p in recent if p.length_bucket}
     used_formats = {p.structural_format for p in recent if p.structural_format}
     used_media = {p.media_pairing for p in recent if p.media_pairing}
 
@@ -71,7 +105,7 @@ def assign_rotation(scheduled_week: str | None = None) -> dict:
     return {
         "funnel_stage": funnel_stage,
         "hook_posture": _pick_excluding(HOOK_POSTURES, used_hooks),
-        "length_bucket": _pick_excluding(LENGTH_BUCKETS, used_lengths),
+        "length_bucket": _pick_length_bucket(),
         "structural_format": _pick_excluding(STRUCTURAL_FORMATS, used_formats),
         "media_pairing": _pick_excluding(MEDIA_PAIRINGS, used_media),
     }
