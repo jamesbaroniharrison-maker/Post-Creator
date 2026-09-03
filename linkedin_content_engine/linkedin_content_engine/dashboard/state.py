@@ -38,7 +38,7 @@ from linkedin_content_engine.research_cron.pipeline import JOB_NAME as RESEARCH_
 from linkedin_content_engine.research_cron.pipeline import run_daily_research
 from linkedin_content_engine.utils import as_utc
 from linkedin_content_engine.voice_engine.build_profile import build_and_save_profile
-from linkedin_content_engine.voice_engine.ingestion import add_sample
+from linkedin_content_engine.voice_engine.ingestion import add_sample, parse_labeled_conversation
 from linkedin_content_engine.scheduling import (
     WEEKLY_CAP,
     allocate_accepted_posts,
@@ -116,6 +116,16 @@ class VoiceSampleView(pydantic.BaseModel):
     preview: str
     source_type_label: str = ""
     date_added_str: str = ""
+    question_preview: str = ""
+
+
+class VoiceConvoPairView(pydantic.BaseModel):
+    """One parsed (question, answer) turn from a pasted Gemini conversation, shown
+    for review before any of it is actually saved as a VoiceSample."""
+
+    index: int
+    question: str
+    answer: str
 
 
 class PlannedNoteView(pydantic.BaseModel):
@@ -274,6 +284,20 @@ class DashboardState(rx.State):
     voice_samples: list[VoiceSampleView] = []
     voice_new_sample_text: str = ""
     voice_profile_status: str = "no profile generated yet"
+
+    # Gemini Q&A samples (request: "I'm having conversations with Gemini... it's
+    # asking me a question, and I'm putting a text answer" - the answers are real,
+    # unscripted James-in-his-own-words material, a second source alongside pasted
+    # LinkedIn posts). One pair at a time:
+    voice_qa_question: str = ""
+    voice_qa_answer: str = ""
+    # Or a whole labeled transcript at once ("I'll give the full conversation, just a
+    # straight script... I will ask gemini to label who is speaking") - parsed into a
+    # preview the user confirms before anything is actually saved.
+    voice_convo_text: str = ""
+    voice_convo_gemini_label: str = "Gemini"
+    voice_convo_me_label: str = "Me"
+    voice_convo_preview: list[VoiceConvoPairView] = []
 
     # Email settings - both jobs fully independent on day AND time
     email_recipient: str = ""
@@ -1347,6 +1371,7 @@ class DashboardState(rx.State):
                 preview=(s.raw_text[:180] + "...") if len(s.raw_text) > 180 else s.raw_text,
                 source_type_label=humanize(s.source_type),
                 date_added_str=s.date_added.strftime("%d %b %Y"),
+                question_preview=s.question or "",
             )
             for s in samples
         ]
@@ -1371,6 +1396,70 @@ class DashboardState(rx.State):
         self.voice_new_sample_text = ""
         self._reload_voice()
         self.status_message = "Sample added. Regenerate the voice profile below to have it take effect."
+
+    @rx.event
+    def set_voice_qa_question(self, value: str):
+        self.voice_qa_question = value
+
+    @rx.event
+    def set_voice_qa_answer(self, value: str):
+        self.voice_qa_answer = value
+
+    @rx.event
+    def add_voice_qa_sample(self):
+        answer = self.voice_qa_answer.strip()
+        if not answer:
+            return
+        add_sample(answer, "gemini_qa", question=self.voice_qa_question)
+        self.voice_qa_question = ""
+        self.voice_qa_answer = ""
+        self._reload_voice()
+        self.status_message = "Sample added. Regenerate the voice profile below to have it take effect."
+
+    @rx.event
+    def set_voice_convo_text(self, value: str):
+        self.voice_convo_text = value
+
+    @rx.event
+    def set_voice_convo_gemini_label(self, value: str):
+        self.voice_convo_gemini_label = value
+
+    @rx.event
+    def set_voice_convo_me_label(self, value: str):
+        self.voice_convo_me_label = value
+
+    @rx.event
+    def preview_voice_conversation(self):
+        gemini_label = self.voice_convo_gemini_label.strip() or "Gemini"
+        me_label = self.voice_convo_me_label.strip() or "Me"
+        pairs = parse_labeled_conversation(self.voice_convo_text, gemini_label, me_label)
+        self.voice_convo_preview = [
+            VoiceConvoPairView(index=i, question=q or "(no question found before this answer)", answer=a)
+            for i, (q, a) in enumerate(pairs)
+        ]
+        if not pairs:
+            self.status_message = (
+                "Couldn't find any turns labeled with those speaker names - check the "
+                "labels above match what's in the pasted text."
+            )
+
+    @rx.event
+    def discard_voice_convo_preview(self):
+        self.voice_convo_preview = []
+
+    @rx.event
+    def confirm_voice_convo_samples(self):
+        for pair in self.voice_convo_preview:
+            question = "" if pair.question.startswith("(no question") else pair.question
+            add_sample(pair.answer, "gemini_qa", question=question)
+        count = len(self.voice_convo_preview)
+        self.voice_convo_preview = []
+        self.voice_convo_text = ""
+        self._reload_voice()
+        self.status_message = (
+            f"Added {count} sample(s) from the conversation. Regenerate the voice "
+            "profile below to have them take effect."
+        )
 
     @rx.event
     def delete_voice_sample(self, sample_id: int):

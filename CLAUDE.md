@@ -735,3 +735,45 @@ Verified with the same real-browser method used to find them: re-screenshotted H
 and Settings after the fix - Home now shows one unified card matching the reference's
 structure, both Settings buttons now render full-width and visually match "Research +
 draft" the way the spec asked for.
+
+## Two more ways to add voice samples: Gemini Q&A and full transcripts (4 Sept 2026)
+
+Request (dictated, parsed carefully): "I'm having conversations with Gemini... it's
+asking me a question, and I'm putting a text answer... I want to be able to do
+[that]... I'll give the full conversation, just a straight script." Two distinct
+flows, confirmed directly rather than guessed: a single question+answer pair (two
+boxes), and a whole pasted conversation ("this isn't question and answer, it's a
+full convo... I will ask gemini to label who is speaking") parsed into many samples
+at once.
+
+**Schema**: `VoiceSample` gained `question: str | None` (migration `6515eb9df41b`,
+a plain nullable column add, no batch-alter complications this time) - context only,
+never fed into the keyness/structural/close-read analysis, which still only ever
+reads `raw_text`. `voice_engine/ingestion.py`'s `VALID_SOURCE_TYPES` gained
+`"gemini_qa"` alongside the existing `linkedin_post`/`audio_transcript`.
+
+**Single Q&A pair**: new "Add a Gemini Q&A" card - two labeled boxes (question,
+answer), one `add_voice_qa_sample` event, one sample per submit.
+
+**Full conversation**: new `parse_labeled_conversation(text, gemini_label, me_label)`
+in `ingestion.py` - splits a pasted transcript on lines starting with either
+configured speaker label followed by a colon (case-insensitive, labels editable in
+the UI so it isn't locked to literally "Gemini:"/"Me:"), handles multi-line turns,
+and pairs each of the user's turns with whatever the other speaker said immediately
+before it. Deliberately returns pairs rather than saving anything directly - a
+labeling convention this loose (the user prompts Gemini itself to add the labels
+before copying the text out, so the exact wording isn't fully predictable) is worth a
+review step. New `preview_voice_conversation`/`confirm_voice_convo_samples`/
+`discard_voice_convo_preview` events: parsing only ever populates a preview list
+first, nothing is written to `voicesample` until "Add these samples" is clicked.
+
+Verified for real with a scripted browser session, not just by reading the code:
+logged in, added one Q&A pair (confirmed the "Sample added" status and the new
+"Gemini Qa" badge/question line rendering in the samples list), pasted a two-turn
+labeled conversation, clicked Preview (confirmed both parsed pairs rendered
+correctly, including the multi-line answer), clicked "Add these samples" (confirmed
+the sample count went from 8 to 10 - the real database already had 7 real LinkedIn
+posts James had added independently since the page shipped, a good sign the feature
+was already getting used). Deleted the 3 fabricated test samples afterward so they
+wouldn't pollute the real corpus this feature exists to keep clean - the 7 real
+LinkedIn posts were left untouched.

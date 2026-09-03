@@ -62,11 +62,17 @@ class Post(rx.Model, table=True):
 
 
 class VoiceSample(rx.Model, table=True):
-    """Raw corpus input feeding the voice-profile pipeline (spec Â§3c)."""
+    """Raw corpus input feeding the voice-profile pipeline (spec Â§3c).
 
-    source_type: str  # linkedin_post / audio_transcript
+    `question` is context only (e.g. the question Gemini asked, for gemini_qa
+    samples) - it's Gemini's writing, not James's, so it's never fed into the
+    keyness/structural/close-read analysis, only `raw_text` (his answer) is.
+    """
+
+    source_type: str  # linkedin_post / audio_transcript / gemini_qa
     raw_text: str
     date_added: datetime
+    question: str | None = None
 
 
 class VoiceProfile(rx.Model, table=True):
