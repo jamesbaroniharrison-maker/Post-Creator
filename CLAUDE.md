@@ -412,3 +412,66 @@ the phone separately. All genuinely manual, one-time steps for whoever's at the
 keyboard. Once done: create your dashboard login (`python -m scripts.create_account
 --username you --password "..."` from `linkedin_content_engine/`, venv active), then
 your phone can reach `http://<tailscale-machine-name>:3000/login` from anywhere.
+
+## Post-type dropdowns showing raw snake_case (3 Sept 2026)
+
+Request: "I don't like the personal_content no_post... make them plain text so it
+looks better." Most of the app already humanized these (`post_type_label` on
+`PostView`/`DayPlanView`), but Reflex's high-level `rx.select(list[str], ...)` only
+supports one string as both the option's value and its displayed label - so anywhere
+a select was built straight from `POST_TYPES`/`DAY_TEMPLATE_OPTIONS`, the raw value
+("no_post", "personal_reflection") was what showed up in the dropdown itself.
+
+New `type_select()` helper (`dashboard/components.py`) rebuilds the same
+trigger/content/root structure `HighLevelSelect.create` uses internally, but with
+`rx.select.item(humanize(opt), value=opt)` instead - `humanize()` already existed
+(used elsewhere for badges/labels), this just wires it into the select itself. Applied
+everywhere `POST_TYPES`/`DAY_TEMPLATE_OPTIONS` fed a raw select: the Weekly Plan
+Template's 7 day pickers, the quick-generate post type, the Home page upload post
+type, and the per-day note-draft post type on the planning calendar. Confirmed in the
+compiled output, not just assumed: `RadixThemesSelect.Item({value:"no_post"},"No
+Post")` - value stays the raw string the backend expects, label is humanized.
+
+## Daily research cron: a real silent failure, found and fixed (3 Sept 2026)
+
+Not a request - went looking for the highest-leverage next improvement and found the
+7am scheduled run that same morning had actually failed: `Get-ScheduledTaskInfo`
+showed `LastTaskResult = 3221225786` (`0xC000013A`, `STATUS_CONTROL_C_EXIT` - Task
+Scheduler force-killing the process), and because `research_cron/pipeline.py` only
+commits the topic-bank rows it found in one batch at the very end of the run
+(`_set_last_run`/`session.commit()` both happen after the full query loop), a run
+that gets killed partway through saves nothing at all - and nothing anywhere would
+have shown this had happened. Task Scheduler doesn't capture a task's stdout/stderr by
+default, so the only trace was that one `LastTaskResult` field, which nobody was
+checking.
+
+Ran the cron manually to get real numbers rather than guess: **10 minutes**
+end-to-end, stored 15 high-tier / 12 mid-tier findings, 28 duplicates skipped, 0
+errors. So the old 30-minute `ExecutionTimeLimit` wasn't chronically too tight - this
+looks like a one-off slowdown (likely Gemini free-tier scoring calls running slow or
+getting throttled; each finding gets its own scoring call with a 60s timeout) - but
+with zero visibility, a rare fluke is exactly as invisible as a systematic problem
+would be.
+
+Three-part fix, not just "raise the timeout":
+- **Logging**: `research_cron/run.py` now writes to `research_cron.log` (next to
+  `rxconfig.py`, gitignored) with an explicit `STARTED` line and a `FINISHED: {...}`/
+  `FAILED` line - a start with no matching finish is itself diagnostic evidence of a
+  timeout-kill, not just silence.
+- **Headroom**: `scripts/register_scheduled_task.ps1`'s `ExecutionTimeLimit` raised
+  30 -> 90 minutes. This job isn't time-sensitive (nobody's waiting on a 7am cron), so
+  there's no real cost to generous headroom instead of tuning close to the observed
+  normal duration. **Not yet applied to the live registered task** - updating it needs
+  the same elevation `Register-ScheduledTask` always has (confirmed live:
+  `Set-ScheduledTask` failed with "Access is denied" from this non-elevated session) -
+  re-run `register_scheduled_task.ps1` from an elevated prompt to pick it up.
+- **Dashboard visibility**: new `DashboardState._reload_job_status()` reads
+  `JobRun.last_run_at` for `daily_research` (already the pipeline's own
+  once-per-day-guard field, and only ever written on a successful full completion -
+  a genuine "last success" signal, not "last attempt") and shows it on the Settings
+  page next to "Run research now," flagged red/"overdue" past 36 hours old. Confirmed
+  in the compiled output.
+
+Manually running the cron with `--force` during this investigation also means today's
+research wasn't actually lost - the topic bank has today's real findings now, just
+about 6 hours later than the scheduled 7am run would have delivered them.

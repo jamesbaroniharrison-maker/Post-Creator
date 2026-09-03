@@ -44,10 +44,16 @@ $Action = New-ScheduledTaskAction `
 $DailyTrigger = New-ScheduledTaskTrigger -Daily -At $DailyTime
 $LogonTrigger = New-ScheduledTaskTrigger -AtLogOn
 
+# 90 minutes, not 30: a real run on 3 Sept 2026 took ~10 minutes end to end, but the
+# 7am scheduled run that same day got force-killed at the old 30-minute limit (exit
+# 0xC000013A) - likely a slow patch on the Gemini scoring calls (each finding gets its
+# own call, timeout 60s per call) rather than a hard ceiling being reliably too tight.
+# This job isn't time-sensitive (nobody's waiting on a 7am cron), so there's no cost to
+# generous headroom instead of tuning the limit close to the observed normal duration.
 $Settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
     -DontStopOnIdleEnd `
-    -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 90)
 
 # Register-ScheduledTask's own CIM errors don't reliably respect $ErrorActionPreference
 # (confirmed live: an Access Denied error printed, then the script carried on and

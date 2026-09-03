@@ -4,7 +4,7 @@ customizable email reminder timing."""
 import reflex as rx
 import reflex_local_auth
 
-from linkedin_content_engine.dashboard.components import PRIMARY_CTA, SECONDARY_CTA, page_shell
+from linkedin_content_engine.dashboard.components import PRIMARY_CTA, SECONDARY_CTA, page_shell, type_select
 from linkedin_content_engine.dashboard.state import (
     DAY_TEMPLATE_OPTIONS,
     POST_TYPES,
@@ -43,7 +43,7 @@ def _generate_now_card() -> rx.Component:
         rx.vstack(
             rx.heading("Generate a post now", size="3"),
             _field_label("Post type"),
-            rx.select(
+            type_select(
                 POST_TYPES,
                 value=DashboardState.quick_post_type,
                 on_change=DashboardState.set_quick_post_type,
@@ -84,6 +84,22 @@ def _run_research_card() -> rx.Component:
                 "daily schedule - includes any queued topics from the card on the right.",
                 size="1",
                 class_name="hud-muted",
+            ),
+            rx.hstack(
+                rx.text("Last successful run:", size="1", weight="medium", class_name="hud-muted"),
+                rx.text(
+                    DashboardState.last_research_run_display,
+                    size="1",
+                    color=rx.cond(DashboardState.last_research_run_stale, "red", "gray"),
+                    weight=rx.cond(DashboardState.last_research_run_stale, "bold", "regular"),
+                ),
+                rx.cond(
+                    DashboardState.last_research_run_stale,
+                    rx.badge("overdue", color_scheme="red", variant="soft", size="1"),
+                    rx.fragment(),
+                ),
+                spacing="2",
+                align="center",
             ),
             rx.spacer(),
             rx.button(
@@ -194,7 +210,7 @@ def _weekly_plan_card() -> rx.Component:
                 *[
                     rx.vstack(
                         _field_label(day_name),
-                        rx.select(
+                        type_select(
                             DAY_TEMPLATE_OPTIONS,
                             value=value,
                             on_change=setter,

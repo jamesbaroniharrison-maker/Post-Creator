@@ -5,7 +5,7 @@ on one big page")."""
 import reflex as rx
 import reflex_local_auth
 
-from linkedin_content_engine.dashboard.components import PRIMARY_CTA, page_shell, stat_card
+from linkedin_content_engine.dashboard.components import PRIMARY_CTA, page_shell, stat_card, type_select
 from linkedin_content_engine.dashboard.state import POST_TYPES, DashboardState
 
 
@@ -58,7 +58,7 @@ def _upload_box() -> rx.Component:
             ),
             rx.vstack(
                 rx.text("Post type", size="1", weight="medium", class_name="hud-muted"),
-                rx.select(
+                type_select(
                     POST_TYPES,
                     value=DashboardState.upload_post_type,
                     on_change=DashboardState.set_upload_post_type,

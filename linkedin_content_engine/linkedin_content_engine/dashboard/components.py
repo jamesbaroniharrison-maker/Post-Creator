@@ -13,10 +13,33 @@ from linkedin_content_engine.dashboard.state import (
     PostView,
     StatBreakdownItem,
     WeekPlanView,
+    humanize,
 )
 
 PRIMARY_CTA = {"color_scheme": "bronze", "variant": "solid"}
 SECONDARY_CTA = {"color_scheme": "bronze", "variant": "outline"}
+
+
+_SELECT_TRIGGER_PROPS = ["id", "placeholder", "variant", "radius", "width", "flex_shrink"]
+
+
+def type_select(options: list[str], value, on_change, **props) -> rx.Component:
+    """A select where the option shown is humanized ("no_post" -> "No Post") but the
+    stored/emitted value stays the raw snake_case string - request: "I don't like the
+    personal_content no_post... make them plain text so it looks better." Reflex's
+    high-level rx.select only supports one string as both label and value, so this
+    rebuilds the same trigger/content/root split rx.select itself uses (see
+    HighLevelSelect.create) with a separate label."""
+    trigger_props = {k: props.pop(k) for k in _SELECT_TRIGGER_PROPS if k in props}
+    return rx.select.root(
+        rx.select.trigger(**trigger_props),
+        rx.select.content(
+            rx.select.group(*[rx.select.item(humanize(opt), value=opt) for opt in options]),
+        ),
+        value=value,
+        on_change=on_change,
+        **props,
+    )
 
 NAV_ITEMS = [
     ("Home", "/"),
@@ -436,7 +459,7 @@ def day_plan_cell(day: DayPlanView) -> rx.Component:
                         width="100%",
                     ),
                     rx.hstack(
-                        rx.select(
+                        type_select(
                             POST_TYPES,
                             value=DashboardState.note_draft_post_types[day.date],
                             on_change=lambda v: DashboardState.set_note_draft_post_type(day.date, v),

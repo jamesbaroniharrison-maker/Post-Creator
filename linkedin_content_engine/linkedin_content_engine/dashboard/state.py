@@ -24,7 +24,8 @@ from linkedin_content_engine.drafting_engine.research import ResearchFinding, Re
 from linkedin_content_engine.email_engine.reminder import PROMPT_POOL
 from linkedin_content_engine.email_engine.settings import get_email_settings, save_email_settings
 from linkedin_content_engine.holidays import holiday_for_date
-from linkedin_content_engine.models import ForcedTopic, PlannedNote, Post, TopicBank, WeeklyTemplate
+from linkedin_content_engine.models import ForcedTopic, JobRun, PlannedNote, Post, TopicBank, WeeklyTemplate
+from linkedin_content_engine.research_cron.pipeline import JOB_NAME as RESEARCH_JOB_NAME
 from linkedin_content_engine.research_cron.pipeline import run_daily_research
 from linkedin_content_engine.scheduling import (
     WEEKLY_CAP,
@@ -209,6 +210,13 @@ class DashboardState(rx.State):
     history_posts: list[PostView] = []
     stats: dict[str, str] = {}
 
+    # Last successful daily research run (request: after a real scheduled run got
+    # silently force-killed by Task Scheduler's execution time limit with nothing
+    # anywhere showing it had failed, surface this instead of leaving it something
+    # only discoverable via Get-ScheduledTaskInfo).
+    last_research_run_display: str = "no successful run yet"
+    last_research_run_stale: bool = False
+
     # Statistics page - breakdowns across every post ever drafted, not just what's
     # currently loaded for the other pages above.
     stats_by_post_type: list[StatBreakdownItem] = []
@@ -284,6 +292,7 @@ class DashboardState(rx.State):
             self._reload_weekly_template()
             self._reload_planned_notes()
             self._reload_stats()
+            self._reload_job_status()
             if not self.link_target_date:
                 self.link_target_date = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
         except Exception as exc:  # noqa: BLE001
@@ -600,6 +609,26 @@ class DashboardState(rx.State):
             self.email_digest_time,
         )
         self.status_message = "Email settings saved."
+
+    def _reload_job_status(self):
+        """job_runs.last_run_at is only ever written after run_daily_research
+        finishes successfully (pipeline.py's _set_last_run, called at the very end) -
+        so it's a genuine "last successful completion" signal, not "last attempt."
+        Flagged stale past ~36h to give the 7am daily cadence a day-plus-a-bit of
+        slack before nagging (avoids a false alarm just from checking a few hours
+        after a normal delay, e.g. the machine being off overnight)."""
+        with rx.session(url=config.db_url) as session:
+            row = session.exec(sqlmodel.select(JobRun).where(JobRun.job_name == RESEARCH_JOB_NAME)).first()
+        if row is None:
+            self.last_research_run_display = "no successful run yet"
+            self.last_research_run_stale = False
+            return
+        last_run = row.last_run_at
+        if last_run.tzinfo is None:
+            last_run = last_run.replace(tzinfo=timezone.utc)
+        age = datetime.now(timezone.utc) - last_run
+        self.last_research_run_display = last_run.strftime("%a %d %b, %H:%M UTC")
+        self.last_research_run_stale = age > timedelta(hours=36)
 
     # ---- weekly post-type template (request: "choose which days the certain types
     # of post to go to... option for no post as well") ----
@@ -1236,6 +1265,7 @@ class DashboardState(rx.State):
             self.status_message = message
             self._reload_bank()
             self._reload_forced_topics()
+            self._reload_job_status()
 
     @rx.event
     def set_new_forced_topic(self, value: str):
