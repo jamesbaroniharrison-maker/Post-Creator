@@ -700,3 +700,38 @@ stuck zombie dev-server processes on ports 3000-8011 (a full reboot is a real
 disruptive action on James's machine - not done without asking first, unlike
 everything else in this entry which was either fully reversible or explicitly
 requested).
+
+## UI overhaul re-audited against the spec, two real gaps found and fixed (3 Sept 2026)
+
+Request: implement `UI-OVERHAUL.md`/`design-reference.html` again, page by page with a
+check-in after tokens+shared-components and after each individual page. Flagged
+before starting that this exact overhaul was already done in one pass earlier the
+same day (commit `9afb159`) - James chose to audit the existing work against the spec
+first rather than redo it blind.
+
+Read both spec files in full and checked every token, `nav_bar`, `empty_state` (built
+once, correctly reused on Review/Rejected/Topic Bank/Past Weeks, and later reused
+again on Voice), the "one primary button per section" rule, and all 9 live pages via
+a real logged-in Playwright session (browser automation, not the old CLI-screenshot
+method, since login now blocks a bare URL load) against real screenshots. Most of it
+held up well. Two real, concrete gaps:
+
+- **Home's `--pad-lg` (40px "main content card") token was defined in
+  `design_tokens.css` but never actually applied anywhere** - confirmed via grep,
+  zero matches outside the token definition itself. Home was rendering as two
+  separately-padded 24px cards (Stats, Weekly input) rather than the reference's one
+  unified 40px-padded card. Fixed by restructuring `home.py`: `_stats_panel()`/
+  `_upload_box()` now return their inner content directly rather than each wrapping
+  itself in its own `rx.card`, and `home_page()` wraps both together in one
+  `rx.card(padding="var(--pad-lg)")` with an explicit `gap="2.5rem"` (the spec's
+  "40px between major sections" rule) between them, rather than guessing at Radix's
+  numbered spacing-scale-to-px mapping.
+- **Settings' "Save" button (Email Reminders) had no `width="100%"`** - exactly the
+  "undersized relative to the form above it" defect the spec named directly by
+  example. `"Save weekly plan"` had the identical gap, just less visible since its
+  longer text partly disguised the missing prop. Added `width="100%"` to both.
+
+Verified with the same real-browser method used to find them: re-screenshotted Home
+and Settings after the fix - Home now shows one unified card matching the reference's
+structure, both Settings buttons now render full-width and visually match "Research +
+draft" the way the spec asked for.
