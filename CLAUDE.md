@@ -601,3 +601,28 @@ examples`/`llm_close_read` output competing for space in the prompt against the
 hand-authored `PERSONA_EXEMPLARS`, which is a second, independent way the "sounds
 like a placeholder, not like me" problem gets better over time - this fix and a
 richer corpus both push in the same direction, neither replaces the other.
+
+## Retry on malformed-JSON drafts (3 Sept 2026)
+
+Picked off the top of a "what else can be done" menu - the JSONDecodeError bug
+documented in the "Example drafts generated for review" entry above, flagged there
+as found-but-not-yet-fixed. `draft_post`'s two generation call sites (the initial
+draft, and the audit-gate-failure retry) both called `_chat` and parsed its output
+inline with zero resilience - a malformed JSON response crashed the whole draft,
+same failure mode already fixed for the audit-gate and privacy-scrub calls but never
+applied here.
+
+New `_chat_and_parse_draft(system_prompt, user_content, retries=2)` wraps the
+call-and-parse step, retrying (plain re-call, same prompt - local models are
+stochastic enough that a second attempt usually just succeeds, confirmed by this
+exact bug requiring a second manual run to succeed) on `json.JSONDecodeError` or
+`pydantic.ValidationError`, raising only after exhausting retries. Both call sites in
+`draft_post` now go through it instead of the inline `_chat`/`json.loads`/
+`model_validate` sequence.
+
+Verified for real, not just by reading the code: mocked `_chat` to fail once then
+return valid JSON - confirmed it retried and returned the correct result (2 calls
+made); mocked it to always fail - confirmed it correctly raises after exhausting
+retries (3 attempts: 1 + 2 retries), rather than retrying forever or swallowing the
+error silently. Then ran one real draft end to end through the actual pipeline
+(`generate_and_save_draft`, no mocking) to confirm nothing broke - landed cleanly.

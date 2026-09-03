@@ -16,6 +16,7 @@ import re
 
 import dotenv
 import httpx
+import pydantic
 
 from linkedin_content_engine.drafting_engine.persona import (
     CADENCE_MECHANICS,
@@ -503,6 +504,25 @@ def _scrub_note(note: str) -> tuple[str, bool]:
     return retried, verified
 
 
+def _chat_and_parse_draft(system_prompt: str, user_content: str, retries: int = 2) -> DraftOutput:
+    """Call the model and parse its response as DraftOutput, retrying on a malformed
+    response instead of letting the whole draft crash. Found live (request: "3
+    example posts" - the second draft threw json.decoder.JSONDecodeError with no
+    retry anywhere) - the audit-gate and privacy-scrub calls both already retry once
+    on a bad result, this one just never got the same treatment. A malformed JSON
+    response is a real, if occasional, local-model failure mode (same root cause as
+    the documented llama3.2 JSON-echo bug), not something worth failing the whole
+    draft over when a second attempt usually just works."""
+    last_error: Exception | None = None
+    for attempt in range(retries + 1):
+        content = _chat(system_prompt, user_content)
+        try:
+            return DraftOutput.model_validate(json.loads(content))
+        except (json.JSONDecodeError, pydantic.ValidationError) as exc:
+            last_error = exc
+    raise last_error
+
+
 def _sample_characteristic_language() -> str:
     """Same reasoning as draft_post's few-shot sampling below: shown the full opener/
     bridge lists every call, the model didn't treat them as flavour options, it
@@ -583,8 +603,7 @@ def draft_post(
         media_pairing=media_pairing,
     )
 
-    content = _chat(system_prompt, f"Topic: {topic}")
-    draft = DraftOutput.model_validate(json.loads(content))
+    draft = _chat_and_parse_draft(system_prompt, f"Topic: {topic}")
     draft.text = _strip_em_dash(_redact_money(draft.text))
 
     passes, problem = _run_audit_call(draft.text, topic)
@@ -596,8 +615,7 @@ def draft_post(
             "topic above - write it as commentary/opinion instead.)"
         )
         try:
-            content = _chat(system_prompt, retry_content)
-            draft = DraftOutput.model_validate(json.loads(content))
+            draft = _chat_and_parse_draft(system_prompt, retry_content)
             draft.text = _strip_em_dash(_redact_money(draft.text))
             passes, _ = _run_audit_call(draft.text, topic)
         except Exception:
