@@ -10,6 +10,7 @@ from linkedin_content_engine.dashboard.state import (
     DashboardState,
     DayPlanView,
     PostView,
+    StatBreakdownItem,
     WeekPlanView,
 )
 
@@ -23,6 +24,7 @@ NAV_ITEMS = [
     ("Rejected", "/rejected"),
     ("Topic Bank", "/topic-bank"),
     ("Past Weeks", "/history"),
+    ("Statistics", "/statistics"),
     ("Settings", "/settings"),
 ]
 
@@ -388,6 +390,12 @@ def day_plan_cell(day: DayPlanView) -> rx.Component:
                 rx.cond(day.is_today, rx.badge("Today", color_scheme="bronze", variant="soft"), rx.fragment()),
                 spacing="2",
                 align="center",
+                wrap="wrap",
+            ),
+            rx.cond(
+                day.holiday_name != "",
+                rx.badge(f"🎉 {day.holiday_name}", variant="soft", size="1", color_scheme="amber"),
+                rx.fragment(),
             ),
             rx.cond(
                 day.note != None,  # noqa: E711 - rx.Var equality, not a Python None-check
@@ -459,9 +467,13 @@ def day_plan_cell(day: DayPlanView) -> rx.Component:
 
 def week_plan_section(week: WeekPlanView) -> rx.Component:
     """One week's section of the month planning calendar: a heading with how many
-    posts are already committed, a "Fill this week" catch-up button (request: "a
-    draft this weeks post button if for whatever time that they havent come up...
-    have a button per week"), and its 7 day cells."""
+    posts are already committed, two catch-up buttons, and its 7 day cells.
+
+    "Plan this week" (request: "a button to actually draft the post for the next
+    week... it automatically just selects post for the week") reads the weekday
+    template + holiday awareness day by day. "Fill this week" (older, simpler) just
+    tops the raw count up from the topic bank regardless of day-of-week - both stay,
+    since they answer slightly different questions."""
     return rx.vstack(
         rx.hstack(
             rx.heading(week.week_label, size="3"),
@@ -472,6 +484,13 @@ def week_plan_section(week: WeekPlanView) -> rx.Component:
             ),
             rx.spacer(),
             rx.button(
+                "Plan this week",
+                size="1",
+                on_click=DashboardState.plan_week(week.monday),
+                loading=DashboardState.is_busy,
+                **PRIMARY_CTA,
+            ),
+            rx.button(
                 "Fill this week",
                 size="1",
                 on_click=DashboardState.fill_week(week.monday),
@@ -480,6 +499,7 @@ def week_plan_section(week: WeekPlanView) -> rx.Component:
             ),
             width="100%",
             align="center",
+            wrap="wrap",
         ),
         rx.grid(
             rx.foreach(week.days, day_plan_cell),
@@ -596,4 +616,48 @@ def page_shell(active: str, *children) -> rx.Component:
         ),
         min_height="100vh",
         background="var(--bg)",
+    )
+
+
+def stat_bar_row(item: StatBreakdownItem) -> rx.Component:
+    """One labelled bar in a Statistics-page breakdown card - gold fill, since these
+    are data, not an action (design-reference.html's gold/terracotta split)."""
+    return rx.vstack(
+        rx.hstack(
+            rx.text(item.label, size="2"),
+            rx.spacer(),
+            rx.text(item.count, size="2", class_name="hud-mono hud-muted"),
+            width="100%",
+        ),
+        rx.box(
+            rx.box(
+                width=f"{item.pct}%",
+                height="100%",
+                background="var(--accent-gold)",
+                border_radius="var(--radius)",
+            ),
+            width="100%",
+            height="8px",
+            background="var(--bg-surface-2)",
+            border_radius="var(--radius)",
+            overflow="hidden",
+        ),
+        spacing="1",
+        width="100%",
+    )
+
+
+def stat_breakdown_card(title: str, items: rx.Var) -> rx.Component:
+    return rx.card(
+        rx.vstack(
+            rx.heading(title, size="3"),
+            rx.cond(
+                items.length() > 0,
+                rx.vstack(rx.foreach(items, stat_bar_row), spacing="3", width="100%"),
+                rx.text("No data yet.", size="2", class_name="hud-muted"),
+            ),
+            spacing="3",
+            width="100%",
+        ),
+        width="100%",
     )

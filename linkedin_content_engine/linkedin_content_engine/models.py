@@ -119,6 +119,34 @@ class PlannedNote(rx.Model, table=True):
     note_text: str
     post_type: str = "personal_reflection"
     created_at: datetime
+    # Set when this note came from clicking "Link to this day" on a Topic Bank row
+    # (request: "if I have topics that I like I want to be able to click on them...
+    # select a day that I want them to be linked to for a post") rather than typed by
+    # hand - lets the drafting call cite the real source instead of treating the
+    # summary as a from-scratch personal note.
+    source_bank_id: int | None = sqlmodel.Field(foreign_key="topicbank.id", default=None)
+
+
+class WeeklyTemplate(rx.Model, table=True):
+    """Single-row settings: what kind of post (or none) each day of the week defaults
+    to (request: "choose which days the certain types of post... it also needs an
+    option for no post as well"). Purely a planning default - "Plan this week" reads
+    it to auto-fill a week's worth of days, but never overrides a day that already has
+    a note or a generated post, and nothing here forces a post to actually go out
+    without the usual review/accept step.
+    """
+
+    monday: str = "personal_reflection"
+    tuesday: str = "ai_commentary"
+    wednesday: str = "no_post"
+    thursday: str = "ai_commentary"
+    friday: str = "market_commentary"
+    saturday: str = "no_post"
+    sunday: str = "no_post"
+    # Whether "Plan this week" should swap a day's post for a holiday-themed one when
+    # that date lands on a recognised holiday (request: "sync with like holidays and
+    # recommend if it was a specific day... Christmas post or Halloween post").
+    recommend_holidays: bool = True
 
 
 class EmailSettings(rx.Model, table=True):

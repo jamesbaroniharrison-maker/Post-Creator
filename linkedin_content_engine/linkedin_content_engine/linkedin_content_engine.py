@@ -17,6 +17,7 @@ from .dashboard.pages.home import home_page
 from .dashboard.pages.rejected import rejected_page
 from .dashboard.pages.review import review_page
 from .dashboard.pages.settings import settings_page
+from .dashboard.pages.statistics import statistics_page
 from .dashboard.pages.topic_bank import topic_bank_page
 
 app = rx.App(stylesheets=["/design_tokens.css"])
@@ -26,4 +27,5 @@ app.add_page(accepted_page, route="/accepted")
 app.add_page(rejected_page, route="/rejected")
 app.add_page(topic_bank_page, route="/topic-bank")
 app.add_page(history_page, route="/history")
+app.add_page(statistics_page, route="/statistics")
 app.add_page(settings_page, route="/settings")

@@ -5,6 +5,7 @@ import reflex as rx
 
 from linkedin_content_engine.dashboard.components import PRIMARY_CTA, SECONDARY_CTA, page_shell
 from linkedin_content_engine.dashboard.state import (
+    DAY_TEMPLATE_OPTIONS,
     POST_TYPES,
     TOPIC_CATEGORIES,
     WEEKDAYS,
@@ -162,6 +163,74 @@ def _quick_actions() -> rx.Component:
     )
 
 
+_WEEKDAY_TEMPLATE_ROWS = [
+    ("Monday", DashboardState.wt_monday, DashboardState.set_wt_monday),
+    ("Tuesday", DashboardState.wt_tuesday, DashboardState.set_wt_tuesday),
+    ("Wednesday", DashboardState.wt_wednesday, DashboardState.set_wt_wednesday),
+    ("Thursday", DashboardState.wt_thursday, DashboardState.set_wt_thursday),
+    ("Friday", DashboardState.wt_friday, DashboardState.set_wt_friday),
+    ("Saturday", DashboardState.wt_saturday, DashboardState.set_wt_saturday),
+    ("Sunday", DashboardState.wt_sunday, DashboardState.set_wt_sunday),
+]
+
+
+def _weekly_plan_card() -> rx.Component:
+    """Request: "choose which days the certain types of post to go to... option for
+    no post as well... sync with like holidays and recommend if it was a specific
+    day." This is the default template "Plan this week" (Accepted page) reads - it
+    never overrides a day you've already put your own note on."""
+    return rx.card(
+        rx.vstack(
+            rx.heading("Weekly Plan Template", size="5"),
+            rx.text(
+                "The default post type for each day of the week - used by \"Plan this "
+                "week\" on the Accepted page. Never overrides a day you've already "
+                "pencilled a note on.",
+                size="2",
+                class_name="hud-muted",
+            ),
+            rx.grid(
+                *[
+                    rx.vstack(
+                        _field_label(day_name),
+                        rx.select(
+                            DAY_TEMPLATE_OPTIONS,
+                            value=value,
+                            on_change=setter,
+                            size="2",
+                            width="100%",
+                        ),
+                        spacing="1",
+                        align="start",
+                        width="100%",
+                    )
+                    for day_name, value, setter in _WEEKDAY_TEMPLATE_ROWS
+                ],
+                columns=rx.breakpoints(initial="2", sm="4"),
+                spacing="3",
+                width="100%",
+            ),
+            rx.hstack(
+                rx.checkbox(
+                    "Recommend a holiday-themed post on days like Christmas or Halloween",
+                    checked=DashboardState.wt_recommend_holidays,
+                    on_change=DashboardState.set_wt_recommend_holidays,
+                ),
+                width="100%",
+            ),
+            rx.button(
+                "Save weekly plan",
+                on_click=DashboardState.save_weekly_template,
+                size="3",
+                **PRIMARY_CTA,
+            ),
+            spacing="3",
+            width="100%",
+        ),
+        width="100%",
+    )
+
+
 _HOURS = [f"{h:02d}:00" for h in range(24)]
 
 
@@ -244,4 +313,4 @@ def _email_settings() -> rx.Component:
 
 
 def settings_page() -> rx.Component:
-    return page_shell("/settings", _quick_actions(), _email_settings())
+    return page_shell("/settings", _quick_actions(), _weekly_plan_card(), _email_settings())

@@ -8,7 +8,7 @@ stats update) has to run end to end without touching code.
 import json
 import pathlib
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pydantic
 import reflex as rx
@@ -23,7 +23,8 @@ from linkedin_content_engine.drafting_engine.pipeline import (
 from linkedin_content_engine.drafting_engine.research import ResearchFinding, ResearchResult
 from linkedin_content_engine.email_engine.reminder import PROMPT_POOL
 from linkedin_content_engine.email_engine.settings import get_email_settings, save_email_settings
-from linkedin_content_engine.models import ForcedTopic, PlannedNote, Post, TopicBank
+from linkedin_content_engine.holidays import holiday_for_date
+from linkedin_content_engine.models import ForcedTopic, PlannedNote, Post, TopicBank, WeeklyTemplate
 from linkedin_content_engine.research_cron.pipeline import run_daily_research
 from linkedin_content_engine.scheduling import (
     WEEKLY_CAP,
@@ -38,6 +39,8 @@ REJECTION_REASONS = ["not relevant", "wrong tone", "already covered"]
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 DISPLAY_DAYS = [*WEEKDAYS, "Unscheduled"]
 POST_TYPES = ["ai_commentary", "market_commentary", "personal_reflection"]
+DAY_TEMPLATE_OPTIONS = [*POST_TYPES, "no_post"]
+_WEEKDAY_FIELDS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 TOPIC_CATEGORIES = ["ai", "market"]
 CATEGORY_TO_POST_TYPE = {"ai": "ai_commentary", "market": "market_commentary"}
 HISTORY_WEEKS_LIMIT = 6
@@ -111,6 +114,7 @@ class DayPlanView(pydantic.BaseModel):
     day_label: str  # "Mon 31 Aug"
     is_today: bool
     note: PlannedNoteView | None = None
+    holiday_name: str = ""  # e.g. "Halloween" - request: "sync with like holidays"
 
 
 class WeekPlanView(pydantic.BaseModel):
@@ -122,6 +126,26 @@ class WeekPlanView(pydantic.BaseModel):
     monday: str
     already_scheduled: int  # accepted/published posts already locked into this week
     days: list[DayPlanView] = []
+
+
+class StatBreakdownItem(pydantic.BaseModel):
+    """One bar in a Statistics-page breakdown."""
+
+    label: str
+    count: int
+    pct: int = 0  # 0-100, bar width
+
+
+def _breakdown(counts: dict[str, int], sort_by_count: bool = True) -> list[StatBreakdownItem]:
+    total = sum(counts.values()) or 1
+    items = [
+        StatBreakdownItem(label=humanize(k) or "(none)", count=v, pct=round(v / total * 100))
+        for k, v in counts.items()
+        if v > 0
+    ]
+    if sort_by_count:
+        return sorted(items, key=lambda i: i.count, reverse=True)
+    return sorted(items, key=lambda i: i.label)
 
 
 def _week_label(dt: datetime) -> str:
@@ -185,6 +209,17 @@ class DashboardState(rx.State):
     history_posts: list[PostView] = []
     stats: dict[str, str] = {}
 
+    # Statistics page - breakdowns across every post ever drafted, not just what's
+    # currently loaded for the other pages above.
+    stats_by_post_type: list[StatBreakdownItem] = []
+    stats_by_status: list[StatBreakdownItem] = []
+    stats_by_funnel_stage: list[StatBreakdownItem] = []
+    stats_by_hook_posture: list[StatBreakdownItem] = []
+    stats_by_length_bucket: list[StatBreakdownItem] = []
+    stats_by_structural_format: list[StatBreakdownItem] = []
+    stats_by_media_pairing: list[StatBreakdownItem] = []
+    stats_by_week: list[StatBreakdownItem] = []
+
     # Accepted page: status filter + 4-week look-ahead selector (request: "a filter for
     # looking at accepted and looking at published ones" / "select through the weeks
     # almost like a calendar... four weeks you can look at and plan ahead for")
@@ -212,6 +247,25 @@ class DashboardState(rx.State):
     email_digest_day: str = "Sunday"
     email_digest_time: str = "12:00"
 
+    # Weekly post-type template (request: "choose which days the certain types of
+    # post to go to... option for no post as well") - "Plan this week" reads this to
+    # auto-fill empty days; it's a default, never forced onto a day you've already
+    # put your own note on.
+    wt_monday: str = "personal_reflection"
+    wt_tuesday: str = "ai_commentary"
+    wt_wednesday: str = "no_post"
+    wt_thursday: str = "ai_commentary"
+    wt_friday: str = "market_commentary"
+    wt_saturday: str = "no_post"
+    wt_sunday: str = "no_post"
+    wt_recommend_holidays: bool = True
+
+    # Topic Bank -> day linking (request: "click on them and even drag them or select
+    # a day that I want them to be linked to" - literal cross-page drag-and-drop isn't
+    # practical to build reliably in Reflex, so this is a pick-a-date-then-click flow
+    # instead: one shared target date, a "Link to day" button per bank row).
+    link_target_date: str = ""
+
     # ---- loading ----
 
     @rx.event
@@ -227,8 +281,11 @@ class DashboardState(rx.State):
             self._reload_forced_topics()
             self._reload_history()
             self._reload_email_settings()
+            self._reload_weekly_template()
             self._reload_planned_notes()
             self._reload_stats()
+            if not self.link_target_date:
+                self.link_target_date = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
         except Exception as exc:  # noqa: BLE001
             self.status_message = (
                 f"Couldn't load the dashboard ({exc}). Try refreshing the page - "
@@ -355,12 +412,14 @@ class DashboardState(rx.State):
             days = []
             for d in week_dates(monday):
                 dt = datetime.strptime(d, "%Y-%m-%d")
+                holiday = holiday_for_date(d)
                 days.append(
                     DayPlanView(
                         date=d,
                         day_label=dt.strftime("%a %d %b"),
                         is_today=d == today,
                         note=by_date.get(d),
+                        holiday_name=holiday[0] if holiday else "",
                     )
                 )
             label = "This week" if monday == current_week_label() else f"Week of {monday}"
@@ -542,6 +601,62 @@ class DashboardState(rx.State):
         )
         self.status_message = "Email settings saved."
 
+    # ---- weekly post-type template (request: "choose which days the certain types
+    # of post to go to... option for no post as well") ----
+
+    def _reload_weekly_template(self):
+        with rx.session(url=config.db_url) as session:
+            row = session.exec(sqlmodel.select(WeeklyTemplate)).first()
+        if row:
+            for day in _WEEKDAY_FIELDS:
+                setattr(self, f"wt_{day}", getattr(row, day))
+            self.wt_recommend_holidays = row.recommend_holidays
+
+    @rx.event
+    def set_wt_monday(self, value: str):
+        self.wt_monday = value
+
+    @rx.event
+    def set_wt_tuesday(self, value: str):
+        self.wt_tuesday = value
+
+    @rx.event
+    def set_wt_wednesday(self, value: str):
+        self.wt_wednesday = value
+
+    @rx.event
+    def set_wt_thursday(self, value: str):
+        self.wt_thursday = value
+
+    @rx.event
+    def set_wt_friday(self, value: str):
+        self.wt_friday = value
+
+    @rx.event
+    def set_wt_saturday(self, value: str):
+        self.wt_saturday = value
+
+    @rx.event
+    def set_wt_sunday(self, value: str):
+        self.wt_sunday = value
+
+    @rx.event
+    def set_wt_recommend_holidays(self, value: bool):
+        self.wt_recommend_holidays = value
+
+    @rx.event
+    def save_weekly_template(self):
+        with rx.session(url=config.db_url) as session:
+            row = session.exec(sqlmodel.select(WeeklyTemplate)).first()
+            if row is None:
+                row = WeeklyTemplate()
+            for day in _WEEKDAY_FIELDS:
+                setattr(row, day, getattr(self, f"wt_{day}"))
+            row.recommend_holidays = self.wt_recommend_holidays
+            session.add(row)
+            session.commit()
+        self.status_message = "Weekly plan saved."
+
     @rx.event
     def reuse_as_new_topic(self, post_id: int):
         post = next((p for p in self.history_posts if p.id == post_id), None)
@@ -587,6 +702,36 @@ class DashboardState(rx.State):
             "avg_time_to_review": avg_review,
             "avg_time_to_publish": avg_publish,
         }
+
+        self._reload_full_stats(all_posts)
+
+    def _reload_full_stats(self, all_posts: list[Post]) -> None:
+        """Statistics page breakdowns - reuses the same all-posts query _reload_stats
+        already ran rather than hitting the database a second time."""
+
+        def _count_by(attr: str) -> dict[str, int]:
+            counts: dict[str, int] = {}
+            for p in all_posts:
+                value = getattr(p, attr) or ""
+                if value:
+                    counts[value] = counts.get(value, 0) + 1
+            return counts
+
+        self.stats_by_post_type = _breakdown(_count_by("post_type"))
+        self.stats_by_status = _breakdown(_count_by("status"))
+        self.stats_by_funnel_stage = _breakdown(_count_by("funnel_stage"))
+        self.stats_by_hook_posture = _breakdown(_count_by("hook_posture"))
+        self.stats_by_length_bucket = _breakdown(_count_by("length_bucket"))
+        self.stats_by_structural_format = _breakdown(_count_by("structural_format"))
+        self.stats_by_media_pairing = _breakdown(_count_by("media_pairing"))
+
+        cutoff = datetime.now(timezone.utc) - timedelta(weeks=HISTORY_WEEKS_LIMIT)
+        week_counts: dict[str, int] = {}
+        for p in all_posts:
+            if p.created_at >= cutoff:
+                wk = _week_label(p.created_at)
+                week_counts[wk] = week_counts.get(wk, 0) + 1
+        self.stats_by_week = _breakdown(week_counts, sort_by_count=False)
 
     @rx.var
     def posts_by_day(self) -> dict[str, list[PostView]]:
@@ -832,6 +977,49 @@ class DashboardState(rx.State):
             self._reload_bank()
             self._reload_stats()
 
+    @rx.event
+    def set_link_target_date(self, value: str):
+        self.link_target_date = value
+
+    @rx.event
+    def link_topic_to_day(self, bank_id: int):
+        """request: "if I have topics that I like I want to be able to click on them...
+        select a day that I want them to be linked to for a post." Genuine
+        cross-page drag-and-drop isn't practical to build reliably in Reflex, so this
+        is the click-then-pick-a-date equivalent: pick link_target_date once at the
+        top of Topic Bank, then click "Link to day" on whichever topic should land
+        there. Creates (or overwrites) that date's planned note, pointed at this bank
+        row, so generating the draft later cites the real finding instead of treating
+        it as a from-scratch personal note."""
+        target_date = self.link_target_date
+        with rx.session(url=config.db_url) as session:
+            bank_row = session.get(TopicBank, bank_id)
+            if bank_row is None:
+                self.status_message = "That topic bank row no longer exists."
+                return
+            post_type = CATEGORY_TO_POST_TYPE.get(bank_row.category, "ai_commentary")
+            existing = session.exec(
+                sqlmodel.select(PlannedNote).where(PlannedNote.target_date == target_date)
+            ).first()
+            if existing:
+                existing.note_text = bank_row.summary
+                existing.post_type = post_type
+                existing.source_bank_id = bank_id
+                session.add(existing)
+            else:
+                session.add(
+                    PlannedNote(
+                        target_date=target_date,
+                        note_text=bank_row.summary,
+                        post_type=post_type,
+                        created_at=datetime.now(timezone.utc),
+                        source_bank_id=bank_id,
+                    )
+                )
+            session.commit()
+        self.status_message = f"Linked to {target_date} - see Plan ahead on the Accepted page."
+        self._reload_planned_notes()
+
     @rx.event(background=True)
     async def fill_week(self, monday: str):
         """Catch-up button (request: "a draft this week's post button if for whatever
@@ -886,6 +1074,109 @@ class DashboardState(rx.State):
             self.status_message = message
             self._reload_posts()
             self._reload_bank()
+            self._reload_stats()
+
+    @rx.event(background=True)
+    async def plan_week(self, monday: str):
+        """"Plan this week" (request: "a button to actually draft the post for the
+        next week... it automatically just selects post for the week"). Unlike
+        fill_week (which just tops up a raw count from the bank), this reads the
+        weekly post-type template day by day - including "no post" - and, when
+        recommend_holidays is on, swaps in a holiday angle on a day that lands on one
+        (request: "sync with like holidays... Christmas post or Halloween post").
+        Never touches a day that already has a note - "never overwrites a day you've
+        already decided on"."""
+        async with self:
+            self.is_busy = True
+            self.status_message = f"Planning the week of {monday}..."
+
+        with rx.session(url=config.db_url) as session:
+            template = session.exec(sqlmodel.select(WeeklyTemplate)).first()
+            if template is None:
+                template = WeeklyTemplate()
+            already_noted = {
+                n.target_date
+                for n in session.exec(
+                    sqlmodel.select(PlannedNote).where(
+                        sqlmodel.col(PlannedNote.target_date).in_(week_dates(monday))
+                    )
+                ).all()
+            }
+
+        planned = 0
+        skipped_no_post = 0
+        failed = 0
+        for d in week_dates(monday):
+            if d in already_noted:
+                continue
+            weekday_field = date.fromisoformat(d).strftime("%A").lower()
+            post_type = getattr(template, weekday_field)
+            holiday = holiday_for_date(d) if template.recommend_holidays else None
+            note_text = ""
+            if holiday:
+                note_text = f"{holiday[0]}: {holiday[1]}"
+                if post_type == "no_post":
+                    post_type = "personal_reflection"
+            if post_type == "no_post":
+                skipped_no_post += 1
+                continue
+
+            with rx.session(url=config.db_url) as session:
+                note = PlannedNote(
+                    target_date=d,
+                    note_text=note_text or f"Auto-planned {humanize(post_type)} post.",
+                    post_type=post_type,
+                    created_at=datetime.now(timezone.utc),
+                )
+                bank_row = None
+                if post_type != "personal_reflection":
+                    category = "ai" if post_type == "ai_commentary" else "market"
+                    bank_row = session.exec(
+                        sqlmodel.select(TopicBank)
+                        .where(
+                            TopicBank.used == False,  # noqa: E712
+                            TopicBank.tier != "discard",
+                            TopicBank.category == category,
+                        )
+                        .order_by(sqlmodel.col(TopicBank.tier).asc(), sqlmodel.col(TopicBank.date_found).desc())
+                    ).first()
+                    if bank_row:
+                        note.source_bank_id = bank_row.id
+                session.add(note)
+                session.commit()
+                session.refresh(note)
+                bank_data = (
+                    (bank_row.id, bank_row.summary, bank_row.source_title, bank_row.source_url, bank_row.category)
+                    if bank_row
+                    else None
+                )
+
+            try:
+                if post_type == "personal_reflection":
+                    generate_and_save_draft(note_text or random.choice(PROMPT_POOL), post_type, skip_research=True)
+                elif bank_data:
+                    _draft_from_bank_row(*bank_data)
+                else:
+                    generate_and_save_draft(
+                        note_text or f"Something notable in {category} recently", post_type, skip_research=False
+                    )
+                planned += 1
+            except Exception:  # noqa: BLE001 - keep going through the rest of the week
+                failed += 1
+
+        message = f"Planned {planned} day(s) for the week of {monday}"
+        if skipped_no_post:
+            message += f", {skipped_no_post} left as no-post"
+        if failed:
+            message += f", {failed} failed - check Review"
+        message += "."
+
+        async with self:
+            self.is_busy = False
+            self.status_message = message
+            self._reload_posts()
+            self._reload_bank()
+            self._reload_planned_notes()
             self._reload_stats()
 
     # ---- quick actions: generate post now, run research now, forced-topic queue ----

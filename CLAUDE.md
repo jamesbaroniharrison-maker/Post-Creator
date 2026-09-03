@@ -300,3 +300,70 @@ now established in this project - see the "visual design/polish" entry above) ac
 all 7 pages, not just a compile check - caught the today-border bug this way, and
 confirmed a separately-observed odd heading colour on one Review-page screenshot was a
 one-off capture glitch (re-screenshotted, didn't reproduce) rather than a real issue.
+
+## Weekly plan template, holidays, "Plan this week", topic-day linking, Statistics (3 Sept 2026)
+
+Request (dictated, parsed carefully): choose which post type goes on which day of the
+week including a "no post" option; recognise holidays and suggest a themed post;
+a button that actually drafts the coming week's posts automatically; the ability to
+click a topic bank finding and attach it to a specific day; a Statistics page. One
+fragment of the dictation ("Guitar project") didn't parse into anything actionable and
+was left alone rather than guessed at.
+
+**New schema**: `WeeklyTemplate` (single-row settings, one post-type-or-"no_post" field
+per weekday plus `recommend_holidays`) and `PlannedNote.source_bank_id` (FK to
+`topicbank`, set when a note came from linking a bank row rather than being typed by
+hand). Migration `d49a5125d289` - real bug hit and fixed while applying it: the
+auto-generated migration used an unnamed FK constraint
+(`batch_op.create_foreign_key(None, ...)`), which SQLite's batch-alter mode rejects
+outright (`ValueError: Constraint must have a name`) - confirmed live, and the
+partially-applied migration left an orphaned `weeklytemplate` table with
+`alembic_version` never bumped, so the table had to be dropped by hand before
+re-running the corrected (named-constraint) migration.
+
+**Holidays** (`holidays.py`, new module): a fixed-date lookup table only (Christmas,
+Halloween, New Year, etc.) - deliberately not a full holiday-calculation library,
+since variable-date holidays (Easter, bank holiday Mondays) need real date arithmetic
+that isn't worth the complexity for a nudge feature.
+
+**"Plan this week"** (`DashboardState.plan_week`, one button per week section
+alongside the existing "Fill this week"): reads the weekday template day by day - a
+holiday match overrides a "no_post" day into a personal reflection with the holiday
+angle as its topic, but never touches a day that already has a note. For each day it
+does plan, it creates the `PlannedNote` and immediately drafts it (best unused topic
+bank row for ai/market days, a rotating `PROMPT_POOL` prompt for personal days),
+landing in Review like everything else. Verified live end to end against the real
+database and real Ollama/Gemini calls - correctly drafted 4 days, skipped 3 "no_post"
+days, 0 failures. (Along the way, discovered 67 real, legitimate topic-bank rows and
+several real draft posts had accumulated across earlier sessions without being
+cleaned up - not a bug, just testing residue - cleaned up test-only rows/posts while
+restoring the real bank rows' `used` flags rather than deleting real research data.)
+
+**Topic Bank → day linking** (`DashboardState.link_topic_to_day`): genuine
+cross-page drag-and-drop isn't practical to build reliably in Reflex, so this is the
+practical equivalent - pick a target date once at the top of Topic Bank
+(`link_target_date`, a native `<input type="date">`), then click "Link to day" on any
+finding; it creates/overwrites that date's `PlannedNote`, pointed at the bank row.
+Verified live: linked note showed up correctly on the Accepted page's calendar with
+the real bank summary, the right post type, and a working "Generate draft" button.
+
+**Statistics page** (`/statistics`, new nav item): breakdowns by post type, status,
+and every CPIO/THBM rotation variable (funnel stage, hook posture, length, structural
+format, media pairing), plus posts-per-week for the history window - gold horizontal
+bars (`stat_bar_row`/`stat_breakdown_card` in `components.py`), reusing the same
+all-posts query `_reload_stats` already ran rather than hitting the database twice.
+
+**Known verification gap, flagged rather than glossed over**: the Topic Bank page's
+own async-loaded data (`bank_rows`) did not visibly render in three separate headless
+screenshots, including after a fully clean server restart on fresh ports - despite
+directly testing the exact same query and `BankView`-construction logic standalone and
+confirming both work correctly against the real database every time (45+ qualifying
+rows, `BankView` objects built without error). Other pages' async data (the Accepted
+page's linked-note calendar cell, in the same session) rendered correctly under the
+same capture method, so this doesn't look like the general "SPA hasn't hydrated yet"
+timing issue already known and worked around elsewhere - but it wasn't fully
+root-caused either. Worth a real look in an actual browser (not headless) before
+trusting the Topic Bank page's initial-load rendering; if it reproduces there too,
+start by checking whether `bank_rows`'s reactive update is actually reaching the
+frontend (browser dev tools' Network/WS tab) versus a rendering issue in
+`topic_bank_page`'s `rx.cond`.
