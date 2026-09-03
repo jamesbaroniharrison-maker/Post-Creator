@@ -4,11 +4,13 @@ weekly-volume view. Separate from Home's small stat cards, which are meant as a
 glanceable overview, not a full analytics page (request: "add a statistics page")."""
 
 import reflex as rx
+import reflex_local_auth
 
 from linkedin_content_engine.dashboard.components import page_shell, stat_breakdown_card
 from linkedin_content_engine.dashboard.state import HISTORY_WEEKS_LIMIT, DashboardState
 
 
+@reflex_local_auth.require_login
 def statistics_page() -> rx.Component:
     return page_shell(
         "/statistics",

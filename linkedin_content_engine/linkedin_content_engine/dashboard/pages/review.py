@@ -1,6 +1,7 @@
 """Review: drafts waiting for a decision. Accept / Redraft / Reject."""
 
 import reflex as rx
+import reflex_local_auth
 
 from linkedin_content_engine.dashboard.components import empty_state, page_shell, review_post_card
 from linkedin_content_engine.dashboard.state import DISPLAY_DAYS, DashboardState
@@ -26,6 +27,7 @@ def _day_section(day: str) -> rx.Component:
     )
 
 
+@reflex_local_auth.require_login
 def review_page() -> rx.Component:
     body = rx.cond(
         DashboardState.posts.length() > 0,

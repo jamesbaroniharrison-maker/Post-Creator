@@ -3,6 +3,7 @@
 which ones are going into this week's lot... too many, puts them for next week")."""
 
 import reflex as rx
+import reflex_local_auth
 
 from linkedin_content_engine.dashboard.components import (
     accepted_filter_bar,
@@ -24,6 +25,7 @@ def _week_group(entry: rx.Var) -> rx.Component:
     )
 
 
+@reflex_local_auth.require_login
 def accepted_page() -> rx.Component:
     body = rx.cond(
         DashboardState.accepted_by_week.length() > 0,

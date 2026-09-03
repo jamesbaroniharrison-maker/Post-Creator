@@ -17,12 +17,20 @@ PART 1 - STARTING THE APP
    is normal - just leave it alone. The first time you do this it
    can take a minute or two.
 4. Once it's ready, your web browser will open automatically to the
-   Home page. If it doesn't open after a couple of minutes, look at
+   login page. If it doesn't open after a couple of minutes, look at
    the black window for a line that says
         App running at: http://localhost:....
    and type that address into your browser yourself.
 
-There's no login - this only runs on your own machine, for you.
+LOGGING IN
+---------------------------------------------------------------------
+Use the username and password you set up. If you forget the
+password, there's no "forgot password" link (single-user system) -
+it needs a direct database fix.
+
+Login came back once remote access (via Tailscale, so you can reach
+the dashboard from your phone) meant this app is no longer guaranteed
+to only be reachable from this one machine.
 
 ====================================================================
 PART 2 - THE PAGES

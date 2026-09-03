@@ -3,6 +3,7 @@ first). Everything else lives on its own page (request: "don't want everything t
 on one big page")."""
 
 import reflex as rx
+import reflex_local_auth
 
 from linkedin_content_engine.dashboard.components import PRIMARY_CTA, page_shell, stat_card
 from linkedin_content_engine.dashboard.state import POST_TYPES, DashboardState
@@ -113,5 +114,6 @@ def _upload_box() -> rx.Component:
     )
 
 
+@reflex_local_auth.require_login
 def home_page() -> rx.Component:
     return page_shell("/", _stats_panel(), _upload_box())

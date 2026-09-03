@@ -2,6 +2,7 @@
 something as a fresh draft for a thin week."""
 
 import reflex as rx
+import reflex_local_auth
 
 from linkedin_content_engine.dashboard.components import SECONDARY_CTA, empty_state, page_shell, status_pill
 from linkedin_content_engine.dashboard.state import HISTORY_WEEKS_LIMIT, DashboardState, PostView
@@ -43,6 +44,7 @@ def _week_group(entry: rx.Var) -> rx.Component:
     )
 
 
+@reflex_local_auth.require_login
 def history_page() -> rx.Component:
     body = rx.cond(
         DashboardState.history_by_week.length() > 0,

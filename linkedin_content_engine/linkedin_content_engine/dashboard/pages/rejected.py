@@ -3,11 +3,13 @@ that, delete them") - older ones are pruned automatically by scheduling.py whene
 a new post is rejected."""
 
 import reflex as rx
+import reflex_local_auth
 
 from linkedin_content_engine.dashboard.components import empty_state, page_shell, rejected_post_card
 from linkedin_content_engine.dashboard.state import DashboardState
 
 
+@reflex_local_auth.require_login
 def rejected_page() -> rx.Component:
     body = rx.cond(
         DashboardState.rejected_posts.length() > 0,

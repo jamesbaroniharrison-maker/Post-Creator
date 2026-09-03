@@ -3,12 +3,12 @@
 Multiple focused pages (request: "don't want everything to be on one big page")
 instead of the original single dashboard page.
 
-No login/auth - this app is localhost-only, single-user, single-machine (request:
-"it's locally hosted, removed the login page"). If it's ever exposed beyond
-localhost, auth needs to come back before that happens.
+Login is back (request: remote access via Tailscale means the dashboard is no longer
+guaranteed to only be reachable from this one machine) - see CLAUDE.md.
 """
 
 import reflex as rx
+import reflex_local_auth
 
 from . import models  # noqa: F401 - registers tables for Alembic autogenerate
 from .dashboard.pages.accepted import accepted_page
@@ -29,3 +29,6 @@ app.add_page(topic_bank_page, route="/topic-bank")
 app.add_page(history_page, route="/history")
 app.add_page(statistics_page, route="/statistics")
 app.add_page(settings_page, route="/settings")
+app.add_page(reflex_local_auth.pages.login_page, route=reflex_local_auth.routes.LOGIN_ROUTE)
+# No public registration route by design - this is a single-user system; the one
+# account is created directly, not via self-service signup.

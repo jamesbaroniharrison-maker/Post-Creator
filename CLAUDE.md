@@ -367,3 +367,48 @@ trusting the Topic Bank page's initial-load rendering; if it reproduces there to
 start by checking whether `bank_rows`'s reactive update is actually reaching the
 frontend (browser dev tools' Network/WS tab) versus a rendering issue in
 `topic_bank_page`'s `rx.cond`.
+
+## Login restored for remote (Tailscale) access (3 Sept 2026)
+
+Request: reachable from a phone while away from the house. The "Localhost only" hard
+rule doesn't change - a Tailscale mesh keeps the dashboard off the public internet -
+but "reachable only from this one machine" (the assumption login removal was built on,
+2 Sept 2026 entry above) stops being true the moment another device can reach it over
+Tailscale, so login had to come back first.
+
+Reverted the login-removal commit's changes deliberately, not blindly: re-added
+`reflex_local_auth` (import, `/login` route, `@require_login` on all 7 original pages
+plus the new `/statistics` page that didn't exist when login was first removed, the
+"Log out" button in `page_shell`), restored `scripts/create_account.py`, and put
+`reflex-local-auth==0.5.0` back in `requirements.txt`. New migration
+`5bcca3137f6e_restore_local_auth_tables` recreates `localuser`/`localauthsession` with
+the exact same columns/indexes the original drop migration removed - applied and
+confirmed live via direct sqlite3 query that both tables exist again.
+
+**Real bug hit while installing the dependency**: `pip install reflex-local-auth==0.5.0`
+pulled in Reflex 0.9.10 as a transitive dependency, silently upgrading past the
+project's pinned 0.9.8 - confirmed via `pip show`. Re-ran `pip install "reflex[db]==0.9.8"`
+afterwards to force it back down; reflex-local-auth 0.5.0 is the same version that
+worked against 0.9.8 before removal, so this isn't a new compatibility risk.
+
+Verified live: full `reflex run` boot compiled clean (34/33 - the `/login` route now
+counted), backend already binds `0.0.0.0` by default (no config change needed for
+Tailscale to reach it), `/ping` returns `"pong"`, and the Socket.IO event endpoint
+responds. Could **not** get a clean headless-Chromium screenshot of the client-side
+redirect to `/login` - it stalled on Reflex's own "Loading..." splash even at a 14s
+`--virtual-time-budget`, with no socket.io connection attempt visible in the browser's
+own console log. This is the same category of unresolved headless-capture limitation
+already flagged for the Topic Bank page above, not a new server-side bug - the backend
+health checks all passed, so treat it as an environment quirk of headless capture in
+this setup, not a reason to distrust the auth gate itself. Confirm the actual login
+prompt shows up in a real browser tab once you're back at the machine.
+
+**Not done, and can't be done remotely**: actually installing and pairing Tailscale.
+`winget install --id Tailscale.Tailscale` needs a UAC elevation click on the physical
+screen - it stalled waiting for that with no way to approve it from a phone - and even
+once installed, `tailscale up` opens a browser tab to authenticate against your
+Tailscale/Google account, plus the Tailscale app needs installing and logging into on
+the phone separately. All genuinely manual, one-time steps for whoever's at the
+keyboard. Once done: create your dashboard login (`python -m scripts.create_account
+--username you --password "..."` from `linkedin_content_engine/`, venv active), then
+your phone can reach `http://<tailscale-machine-name>:3000/login` from anywhere.

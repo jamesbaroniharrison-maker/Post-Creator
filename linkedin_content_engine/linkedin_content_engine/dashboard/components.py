@@ -1,6 +1,7 @@
 """Shared low-level UI building blocks, reused across the dashboard's separate pages."""
 
 import reflex as rx
+import reflex_local_auth
 
 from linkedin_content_engine.scheduling import WEEKLY_CAP
 from linkedin_content_engine.dashboard.state import (
@@ -592,6 +593,13 @@ def page_shell(active: str, *children) -> rx.Component:
                     spacing="0",
                 ),
                 rx.spacer(),
+                rx.button(
+                    "Log out",
+                    on_click=reflex_local_auth.LoginState.do_logout,
+                    variant="soft",
+                    color_scheme="gray",
+                    size="2",
+                ),
                 width="100%",
                 align="center",
                 padding_bottom="1rem",
