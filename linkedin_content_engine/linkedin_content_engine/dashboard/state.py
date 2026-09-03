@@ -24,9 +24,20 @@ from linkedin_content_engine.drafting_engine.research import ResearchFinding, Re
 from linkedin_content_engine.email_engine.reminder import PROMPT_POOL
 from linkedin_content_engine.email_engine.settings import get_email_settings, save_email_settings
 from linkedin_content_engine.holidays import holiday_for_date
-from linkedin_content_engine.models import ForcedTopic, JobRun, PlannedNote, Post, TopicBank, WeeklyTemplate
+from linkedin_content_engine.models import (
+    ForcedTopic,
+    JobRun,
+    PlannedNote,
+    Post,
+    TopicBank,
+    VoiceProfile,
+    VoiceSample,
+    WeeklyTemplate,
+)
 from linkedin_content_engine.research_cron.pipeline import JOB_NAME as RESEARCH_JOB_NAME
 from linkedin_content_engine.research_cron.pipeline import run_daily_research
+from linkedin_content_engine.voice_engine.build_profile import build_and_save_profile
+from linkedin_content_engine.voice_engine.ingestion import add_sample
 from linkedin_content_engine.scheduling import (
     WEEKLY_CAP,
     allocate_accepted_posts,
@@ -97,6 +108,13 @@ class ForcedTopicView(pydantic.BaseModel):
     topic: str
     category: str
     category_label: str = ""
+
+
+class VoiceSampleView(pydantic.BaseModel):
+    id: int
+    preview: str
+    source_type_label: str = ""
+    date_added_str: str = ""
 
 
 class PlannedNoteView(pydantic.BaseModel):
@@ -248,6 +266,14 @@ class DashboardState(rx.State):
     status_message: str = ""
     is_busy: bool = False
 
+    # Voice page - the only way real writing samples get into voice_samples was a
+    # CLI script; there was no dashboard flow for it at all, so the profile driving
+    # every single draft has been running on 5 placeholder samples since 2 Sept 2026
+    # with no way for James to replace them short of editing the database directly.
+    voice_samples: list[VoiceSampleView] = []
+    voice_new_sample_text: str = ""
+    voice_profile_status: str = "no profile generated yet"
+
     # Email settings - both jobs fully independent on day AND time
     email_recipient: str = ""
     email_reminder_day: str = "Friday"
@@ -293,6 +319,7 @@ class DashboardState(rx.State):
             self._reload_planned_notes()
             self._reload_stats()
             self._reload_job_status()
+            self._reload_voice()
             if not self.link_target_date:
                 self.link_target_date = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
         except Exception as exc:  # noqa: BLE001
@@ -1301,6 +1328,74 @@ class DashboardState(rx.State):
                 session.delete(row)
                 session.commit()
         self._reload_forced_topics()
+
+    # ---- voice samples/profile (request: no dashboard flow existed for this at all -
+    # the only way to add a real writing sample was a CLI script nobody had run since
+    # the placeholder corpus was seeded, so every draft has been voice-matched against
+    # 5 test samples, not James's actual writing) ----
+
+    def _reload_voice(self):
+        with rx.session(url=config.db_url) as session:
+            samples = session.exec(
+                sqlmodel.select(VoiceSample).order_by(sqlmodel.col(VoiceSample.date_added).desc())
+            ).all()
+            profile = session.exec(
+                sqlmodel.select(VoiceProfile).order_by(sqlmodel.col(VoiceProfile.generated_at).desc())
+            ).first()
+        self.voice_samples = [
+            VoiceSampleView(
+                id=s.id,
+                preview=(s.raw_text[:180] + "...") if len(s.raw_text) > 180 else s.raw_text,
+                source_type_label=humanize(s.source_type),
+                date_added_str=s.date_added.strftime("%d %b %Y"),
+            )
+            for s in samples
+        ]
+        if profile is None:
+            self.voice_profile_status = "no profile generated yet"
+        else:
+            self.voice_profile_status = (
+                f"generated {profile.generated_at.strftime('%d %b %Y')} from "
+                f"{len(self.voice_samples)} current sample(s)"
+            )
+
+    @rx.event
+    def set_voice_new_sample_text(self, value: str):
+        self.voice_new_sample_text = value
+
+    @rx.event
+    def add_voice_sample(self):
+        text = self.voice_new_sample_text.strip()
+        if not text:
+            return
+        add_sample(text, "linkedin_post")
+        self.voice_new_sample_text = ""
+        self._reload_voice()
+        self.status_message = "Sample added. Regenerate the voice profile below to have it take effect."
+
+    @rx.event
+    def delete_voice_sample(self, sample_id: int):
+        with rx.session(url=config.db_url) as session:
+            row = session.get(VoiceSample, sample_id)
+            if row:
+                session.delete(row)
+                session.commit()
+        self._reload_voice()
+
+    @rx.event(background=True)
+    async def regenerate_voice_profile(self):
+        async with self:
+            self.is_busy = True
+            self.status_message = "Regenerating voice profile..."
+        try:
+            build_and_save_profile()
+            message = "Voice profile regenerated - new drafts will use it."
+        except Exception as exc:  # noqa: BLE001
+            message = f"Voice profile regeneration failed: {exc}"
+        async with self:
+            self.is_busy = False
+            self.status_message = message
+            self._reload_voice()
 
     # ---- upload box (spec Â§3b/Â§3d) ----
 

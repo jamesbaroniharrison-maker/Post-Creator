@@ -475,3 +475,86 @@ Three-part fix, not just "raise the timeout":
 Manually running the cron with `--force` during this investigation also means today's
 research wasn't actually lost - the topic bank has today's real findings now, just
 about 6 hours later than the scheduled 7am run would have delivered them.
+
+## New Voice page - the voice profile had no dashboard flow at all (3 Sept 2026)
+
+Asked for the next highest-leverage improvement again. Went looking, and found
+something more fundamental than the cron fix above: the voice profile that every
+single draft is generated against had **no way to update it from the dashboard at
+all**. `voice_engine/ingestion.py`'s `add_sample()` and `voice_engine/run.py`'s
+`build_and_save_profile()` were CLI-only, invoked directly against `python -m
+linkedin_content_engine.voice_engine.run` - not referenced anywhere under
+`dashboard/`. Checked the live database: `voicesample` is empty, but `voiceprofile`
+holds one row generated 2 Sept 2026 from 5 placeholder/test samples (visible
+keyness terms like "unlearning," "boilerplate" from the placeholder corpus used
+during the repurposing pivot's testing, not James's real writing). So every draft
+since then has been "voice-matched" against fake samples, with no way to fix that
+short of editing the database directly or running a CLI script by hand - the core
+premise of the whole system (voice-matched drafting) has quietly not been true.
+
+New `/voice` page: a "Your samples" card (list with delete, "Regenerate voice
+profile" button) and an "Add a sample" card (paste text, defaults `source_type` to
+`linkedin_post` - `audio_transcript` samples still come through the existing
+capture/transcription pipeline, this is specifically for pasting past posts).
+`DashboardState._reload_voice()` loads both `VoiceSample` rows and the latest
+`VoiceProfile.generated_at` for a status line; `add_voice_sample`/
+`delete_voice_sample` are plain events, `regenerate_voice_profile` is a background
+event (the close-read step makes a real LLM call, same reasoning as
+`run_research_now` being background).
+
+Verified for real, not just compiled: ran `add_sample()` directly against the venv
+python and confirmed the row landed and `get_all_samples()` picked it up, then
+deleted it again (throwaway text, not a real sample - didn't want to seed more
+placeholder data into the exact table this feature exists to let James curate
+properly). Compiled clean (36/35 routes, one more than before for `/voice`) and
+confirmed in the compiled output that "Your samples," "Add a sample," and
+"Regenerate voice profile" all render.
+
+**Not done - needs James's own real writing**: the page works, but nobody has
+pasted real samples in yet, so the profile is still the placeholder one until he
+does. Worth flagging directly rather than implying this is now "fixed" end to end -
+the tooling gap is fixed, the actual data gap isn't (only he can fix that one).
+
+### Aside: a real environment mistake made and caught while building this
+
+Every `pip install`/`python -m reflex run` I'd run earlier this session (the login
+restoration, the dropdown fix) used whatever `python`/`pip` PATH resolved to -
+Windows' global `pythoncore-3.14-64` install, **not** `venv/Scripts/python.exe`,
+the interpreter `Start Content Engine.bat` and the scheduled tasks actually use.
+Caught it here because a script importing `dashboard/state.py` (which now imports
+`voice_engine`) failed with `ModuleNotFoundError: wordfreq` under global Python but
+worked under the venv. Checked whether this had done any real damage: it hadn't -
+`venv` already had `reflex==0.9.8` and `reflex-local-auth==0.5.0` correctly
+installed (apparently never actually uninstalled from the venv when the login-
+removal commit dropped the import and the requirements.txt line, just left
+present-but-unused), so the real app was never broken by this. But every verification
+boot this session before this point was technically run against the wrong
+interpreter, and the earlier `pip install reflex-local-auth==0.5.0` /
+`pip install "reflex[db]==0.9.8"` calls installed into global Python unnecessarily
+(harmless - just untracked, unneeded packages sitting in the global site-packages,
+left alone rather than risk an unrelated uninstall). Switched to invoking
+`venv/Scripts/python.exe` explicitly for everything from this point on - the register
+scripts and Task Scheduler entries were never affected since they always pointed at
+the venv correctly.
+
+## Example drafts generated for review (3 Sept 2026)
+
+Asked to see 3 example posts of varying lengths - the database had 0 posts (cleaned
+of test data after earlier verification rounds), so generated 3 real ones through
+the actual pipeline: 2 from real topic-bank findings (a `TEMPO` FDA AI-pilot story
+and a US/EU AI-regulation-divide story) and 1 personal reflection from the prompt
+pool, left sitting in Review like any normal draft rather than being deleted as
+test data - genuinely postable if James wants them.
+
+**Real bug hit along the way, not yet fixed**: the second bank-sourced draft on the
+first attempt threw `json.decoder.JSONDecodeError` - the local model returned
+malformed JSON (`Expecting property name enclosed in double quotes`) and
+`draft_post` (`drafting_engine/draft.py`) has no retry/repair for a malformed
+structured-output response, unlike the retry logic already built for the audit-gate
+and privacy-scrub calls. Worked around it by retrying the generation (succeeded
+second time - the topic bank row hadn't been marked `used` yet since the mark-used
+step only runs after a successful draft, so nothing was lost). Left unfixed since
+it wasn't today's highest-leverage item, but worth doing the same "split into a
+narrow retry" treatment that already fixed the JSON-echo and PII-scrub reliability
+bugs (see the engineering lessons list near the top of this file) - flagging here
+so it doesn't get lost.

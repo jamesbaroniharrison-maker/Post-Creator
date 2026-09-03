@@ -49,6 +49,7 @@ NAV_ITEMS = [
     ("Topic Bank", "/topic-bank"),
     ("Past Weeks", "/history"),
     ("Statistics", "/statistics"),
+    ("Voice", "/voice"),
     ("Settings", "/settings"),
 ]
 
