@@ -1,42 +1,53 @@
 /* ============================================
-   DESIGN TOKENS - dark mossy-green/bronze editorial palette, serif+sans+mono pairing.
-   Base tokens from portfolio-site/styles.css, depth/contrast tuned per HUD feedback.
+   DESIGN TOKENS - warm dark editorial palette, serif+sans pairing.
+   Source: design-reference.html / UI-OVERHAUL.md at the repo root. Two accents, two
+   jobs, never swapped: gold shows information (stat numbers, focus rings), terracotta
+   triggers an action (primary buttons, active nav, today's date on the calendar).
    ============================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@500&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 :root {
-  --bg: #090D0B;             /* deep forest-black base */
-  --bg-surface: #121815;     /* card/panel surface - lifts off the base */
-  --bg-surface-2: #1B2420;   /* input fields / secondary surface */
-  --accent-moss: #5C8A6B;
-  --accent-moss-bright: #52B788;
-  --accent-bronze: #B98B4E;  /* warm gold/tan - primary CTA accent */
-  --text: #E2E8F0;           /* off-white/cream, not pure white - less glare */
-  --text-muted: #A3B7AC;     /* brightened from #92A399 - readability audit: too dim on dark bg */
-  --border: rgba(82, 183, 136, 0.15); /* subtle glowing edge, not a hard line */
+  --bg: #14110F;
+  --bg-surface: #1C1815;     /* card background */
+  --bg-surface-2: #221D19;   /* input backgrounds */
+  --border: #2E2822;
+  --border-strong: #3D362E;
+  --text: #F2EDE4;
+  --text-muted: #8C8479;
+  --accent-gold: #C9A66B;         /* data only */
+  --accent-terracotta: #BF6E4E;   /* actions only */
+  --accent-terracotta-hover: #A85D3F;
 
-  /* Status pill colors: muted background + soft (not saturated) text */
-  --status-drafted-bg: rgba(107, 114, 128, 0.16);
-  --status-drafted-text: #E2E8F0;
-  --status-approved-bg: rgba(92, 138, 107, 0.18);
-  --status-approved-text: #A8CBB4;
-  --status-published-bg: rgba(45, 140, 140, 0.18);
-  --status-published-text: #7FDBDB;
-  --status-rejected-bg: rgba(153, 45, 45, 0.16);
-  --status-rejected-text: #E0A0A0;
+  /* Status pill colors: muted background + soft (not saturated) text - status
+     semantics (drafted/approved/published/rejected), not part of the gold/terracotta
+     information/action pair above. */
+  --status-drafted-bg: rgba(140, 132, 121, 0.16);
+  --status-drafted-text: #F2EDE4;
+  --status-approved-bg: rgba(139, 154, 108, 0.18);
+  --status-approved-text: #C3D19E;
+  --status-published-bg: rgba(58, 140, 140, 0.18);
+  --status-published-text: #86D9D9;
+  --status-rejected-bg: rgba(180, 70, 60, 0.16);
+  --status-rejected-text: #E3A79C;
 
   --font-display: 'Fraunces', serif;
   --font-body: 'Inter', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', monospace;
 
-  --radius: 6px;
-  --pad: 1.25rem; /* doubled base padding for inputs/textareas/cards */
+  --radius: 8px;      /* buttons, inputs */
+  --radius-lg: 12px;  /* cards, empty states */
+  --pad: 1.5rem;      /* 24px - default card padding */
+  --pad-lg: 2.5rem;   /* 40px - Home's main content card */
+  --space: 0.5rem;    /* 8px base spacing unit */
 }
 
 /* Map our tokens onto Radix Themes' own variables so every rx.* component
    (card, button, badge, select, etc.) picks up the palette without needing
-   per-component overrides. */
+   per-component overrides. Also remaps the "bronze" color_scheme used explicitly
+   throughout the dashboard (PRIMARY_CTA/SECONDARY_CTA and friends) to the real
+   terracotta hex, and the default/unscoped accent to the same - "action" is the more
+   common default use when no color_scheme is set at all. */
 .radix-themes {
   --color-background: var(--bg) !important;
   --color-panel-solid: var(--bg-surface) !important;
@@ -48,16 +59,32 @@
   --gray-4: var(--bg-surface-2) !important;
   --gray-5: var(--border) !important;
   --gray-6: var(--border) !important;
-  --gray-7: var(--border) !important;
-  --gray-8: var(--accent-moss) !important;
+  --gray-7: var(--border-strong) !important;
+  --gray-8: var(--border-strong) !important;
   --gray-9: var(--text-muted) !important;
   --gray-10: var(--text-muted) !important;
   --gray-11: var(--text-muted) !important;
   --gray-12: var(--text) !important;
 
-  --accent-9: var(--accent-moss) !important;
-  --accent-10: var(--accent-moss-bright) !important;
-  --accent-a9: var(--accent-moss) !important;
+  --accent-9: var(--accent-terracotta) !important;
+  --accent-10: var(--accent-terracotta-hover) !important;
+  --accent-a9: var(--accent-terracotta) !important;
+
+  --bronze-1: var(--bg) !important;
+  --bronze-2: var(--bg-surface) !important;
+  --bronze-3: rgba(191, 110, 78, 0.12) !important;
+  --bronze-4: rgba(191, 110, 78, 0.18) !important;
+  --bronze-5: rgba(191, 110, 78, 0.24) !important;
+  --bronze-6: rgba(191, 110, 78, 0.32) !important;
+  --bronze-7: var(--border-strong) !important;
+  --bronze-8: var(--accent-terracotta) !important;
+  --bronze-9: var(--accent-terracotta) !important;
+  --bronze-10: var(--accent-terracotta-hover) !important;
+  --bronze-11: var(--accent-terracotta) !important;
+  --bronze-12: var(--text) !important;
+  --bronze-a9: var(--accent-terracotta) !important;
+  --bronze-a11: var(--accent-terracotta) !important;
+  --bronze-contrast: #ffffff !important;
 
   font-family: var(--font-body);
   font-size: 16px;
@@ -71,16 +98,17 @@ body {
   line-height: 1.6;
 }
 
-/* Readability audit: draft/compliance text areas are the thing she reads and edits
-   most - make sure they're never smaller/tighter than comfortable body text. */
+/* Readability: draft/compliance text areas are the thing you read and edit most -
+   make sure they're never smaller/tighter than comfortable body text. */
 .rt-TextAreaInput textarea,
 .rt-TextAreaInput {
   font-size: 1rem !important;
   line-height: 1.6 !important;
 }
 
-/* Serif restricted to real headings only - everything else (buttons, labels,
-   inputs, badges, body text) stays on the sans body font by default. */
+/* Serif restricted to real headings only (app title, page titles, empty-state
+   headings via rx.heading) - everything else (buttons, labels, inputs, badges, nav,
+   body text) stays on the sans body font by default. */
 h1, h2, h3, h4, h5, h6,
 .rt-Heading {
   font-family: var(--font-display) !important;
@@ -95,7 +123,7 @@ code, .rt-Code, .hud-mono {
 .rt-Card {
   background: var(--bg-surface) !important;
   border: 1px solid var(--border) !important;
-  border-radius: var(--radius) !important;
+  border-radius: var(--radius-lg) !important;
   padding: var(--pad) !important;
 }
 
@@ -105,22 +133,31 @@ code, .rt-Code, .hud-mono {
   border-radius: var(--radius) !important;
 }
 
-.hud-bronze {
-  color: var(--accent-bronze) !important;
+.hud-gold {
+  color: var(--accent-gold) !important;
+}
+
+/* Today's card on the planning calendar - `.rt-Card`'s own `!important` border rule
+   above would otherwise silently defeat a plain inline `border=` prop on the
+   component (confirmed live: the inline override rendered with no visible effect),
+   so this needs a class of matching specificity, not an inline style. */
+.rt-Card.hud-card-today {
+  border: 2px solid var(--accent-terracotta) !important;
 }
 
 .hud-muted {
   color: var(--text-muted) !important;
 }
 
-/* Inputs/selects/textareas: deep olive-grey fields, doubled padding, room to
-   grow vertically instead of clipping. */
+/* Inputs/selects/textareas: dark surface-2 fields, room to grow vertically instead
+   of clipping. */
 .rt-TextFieldRoot,
 .rt-TextAreaInput,
 .rt-SelectTrigger {
   background: var(--bg-surface-2) !important;
-  border: 1px solid var(--border) !important;
+  border: 1px solid var(--border-strong) !important;
   color: var(--text) !important;
+  border-radius: var(--radius) !important;
   padding: 0.65rem 0.85rem !important;
 }
 
@@ -128,6 +165,10 @@ code, .rt-Code, .hud-mono {
   min-height: 140px;
   white-space: pre-wrap;
   overflow-wrap: break-word;
+}
+
+:focus-visible {
+  outline-color: var(--accent-gold) !important;
 }
 
 /* Status pills */
@@ -146,11 +187,18 @@ code, .rt-Code, .hud-mono {
 .hud-pill-published { background: var(--status-published-bg); color: var(--status-published-text); }
 .hud-pill-rejected { background: var(--status-rejected-bg); color: var(--status-rejected-text); }
 
-/* Stat numbers: prominent bold display size */
+/* Stat numbers: prominent bold display size, gold (data, not action) */
 .hud-stat-value {
   font-size: 2rem;
   font-weight: 700;
-  color: var(--accent-bronze);
+  color: var(--accent-gold);
+  font-family: var(--font-body);
+  line-height: 1.1;
+}
+.hud-stat-value-small {
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: var(--accent-gold);
   font-family: var(--font-body);
   line-height: 1.1;
 }
@@ -161,8 +209,30 @@ code, .rt-Code, .hud-mono {
   letter-spacing: 0.04em;
 }
 
+/* Ghost stat card (Home's derived-metrics row: acceptance rate, avg times) - dashed
+   outline, transparent fill, reads as "derived from the numbers above" rather than a
+   fifth-through-seventh stat of equal visual weight. */
+.hud-stat-ghost {
+  background: transparent !important;
+  border: 1px dashed var(--border) !important;
+  border-radius: var(--radius) !important;
+}
+
+/* EmptyState - Review/Rejected/Topic Bank/Past Weeks when there's nothing to show */
+.hud-empty-state {
+  max-width: 380px;
+  margin: 0 auto;
+  text-align: center;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  padding: 3rem 2rem;
+}
+.hud-empty-state svg {
+  color: var(--text-muted);
+}
+
 ::selection {
-  background: var(--accent-moss);
+  background: var(--accent-terracotta);
   color: var(--bg);
 }
 
@@ -174,6 +244,6 @@ code, .rt-Code, .hud-mono {
   background: var(--bg-surface);
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: var(--border-strong);
   border-radius: var(--radius);
 }

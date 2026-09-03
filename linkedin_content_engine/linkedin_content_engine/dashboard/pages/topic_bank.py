@@ -2,7 +2,7 @@
 
 import reflex as rx
 
-from linkedin_content_engine.dashboard.components import PRIMARY_CTA, page_shell
+from linkedin_content_engine.dashboard.components import PRIMARY_CTA, empty_state, page_shell
 from linkedin_content_engine.dashboard.state import BankView, DashboardState
 
 
@@ -42,7 +42,11 @@ def topic_bank_page() -> rx.Component:
     body = rx.cond(
         DashboardState.bank_rows.length() > 0,
         rx.vstack(rx.foreach(DashboardState.bank_rows, _bank_row_card), spacing="3", width="100%"),
-        rx.text("Nothing banked right now.", size="2", class_name="hud-muted"),
+        empty_state(
+            "archive",
+            "Bank's empty",
+            "Research findings that don't get used straight away will collect here.",
+        ),
     )
     return page_shell(
         "/topic-bank",

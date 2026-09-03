@@ -41,15 +41,30 @@ def status_pill(status: rx.Var, label: rx.Var) -> rx.Component:
     )
 
 
-def stat_card(label: str, value: rx.Var) -> rx.Component:
+def stat_card(label: str, value: rx.Var, ghost: bool = False) -> rx.Component:
+    """ghost=True is the "derived from the numbers above" style (Home's Acceptance
+    Rate/Avg Time row) - dashed outline, transparent fill, smaller number - so it
+    doesn't read as a fifth-through-seventh stat of equal weight to the pipeline
+    counts above it."""
     return rx.box(
         rx.vstack(
             rx.text(label, class_name="hud-stat-label"),
-            rx.text(value, class_name="hud-stat-value"),
+            rx.text(value, class_name="hud-stat-value-small" if ghost else "hud-stat-value"),
             spacing="1",
         ),
-        class_name="hud-surface-2",
+        class_name="hud-stat-ghost" if ghost else "hud-surface-2",
         padding="var(--pad)",
+    )
+
+
+def empty_state(icon: str, heading: str, body: str) -> rx.Component:
+    """Shared empty state for Review/Rejected/Topic Bank/Past Weeks, replacing bare
+    muted text (design-reference.html §2: "EmptyState component")."""
+    return rx.box(
+        rx.icon(icon, size=32),
+        rx.heading(heading, size="4", margin_top="0.875rem", margin_bottom="0.375rem"),
+        rx.text(body, size="2", class_name="hud-muted"),
+        class_name="hud-empty-state",
     )
 
 
@@ -301,21 +316,33 @@ def accepted_post_card(post: PostView) -> rx.Component:
 def accepted_filter_bar() -> rx.Component:
     """All / Approved (not yet published) / Published toggle - request: 'a filter for
     looking at accepted and looking at published ones... don't want to sift through
-    ones that haven't been published yet' when logging likes/comments."""
+    ones that haven't been published yet' when logging likes/comments.
+
+    A single bordered segmented control, not a second row of pill buttons - the week
+    selector above it is a different kind of filter (which week) and needs to read as
+    visually distinct from this one (which status), per design-reference.html §5."""
     options = [("all", "All"), ("approved", "Accepted, not published"), ("published", "Published")]
     return rx.hstack(
         *[
-            rx.button(
-                label,
-                size="2",
+            rx.box(
+                rx.text(label, size="1", weight="medium"),
                 on_click=DashboardState.set_accepted_status_filter(value),
-                variant=rx.cond(DashboardState.accepted_status_filter == value, "solid", "outline"),
-                color_scheme="bronze",
+                padding="0.4rem 0.75rem",
+                cursor="pointer",
+                background=rx.cond(
+                    DashboardState.accepted_status_filter == value, "var(--accent-terracotta)", "transparent"
+                ),
+                color=rx.cond(DashboardState.accepted_status_filter == value, "white", "var(--text-muted)"),
+                border_right=rx.cond(value != "published", "1px solid var(--border-strong)", "none"),
             )
             for value, label in options
         ],
-        spacing="2",
-        wrap="wrap",
+        display="inline-flex",
+        border="1px solid var(--border-strong)",
+        border_radius="var(--radius)",
+        overflow="hidden",
+        spacing="0",
+        width="fit-content",
     )
 
 
@@ -349,7 +376,11 @@ def day_plan_cell(day: DayPlanView) -> rx.Component:
     """One day in the 4-week planning calendar: shows any note already pencilled in
     for that date, or lets you add one - request: 'tell the bot beforehand what you
     want to go into those so it knows what to focus on' (e.g. a Halloween post for
-    31 Oct, or 'focus on the new statement release' for a known announcement date)."""
+    31 Oct, or 'focus on the new statement release' for a known announcement date).
+
+    Today gets a 2px terracotta border instead of the default, so it's identifiable at
+    a glance across the 7-card grid without reading every "Today" label
+    (design-reference.html §5)."""
     return rx.card(
         rx.vstack(
             rx.hstack(
@@ -361,6 +392,7 @@ def day_plan_cell(day: DayPlanView) -> rx.Component:
             rx.cond(
                 day.note != None,  # noqa: E711 - rx.Var equality, not a Python None-check
                 rx.vstack(
+                    rx.text("Notes", size="1", weight="medium", class_name="hud-muted"),
                     rx.text(day.note.note_text, size="2", class_name="hud-muted", white_space="pre-wrap"),
                     rx.hstack(
                         rx.badge(day.note.post_type_label, variant="soft", size="1"),
@@ -385,6 +417,7 @@ def day_plan_cell(day: DayPlanView) -> rx.Component:
                     width="100%",
                 ),
                 rx.vstack(
+                    rx.text("Notes", size="1", weight="medium", class_name="hud-muted"),
                     rx.text_area(
                         value=DashboardState.note_drafts[day.date],
                         on_change=lambda v: DashboardState.set_note_draft(day.date, v),
@@ -399,15 +432,17 @@ def day_plan_cell(day: DayPlanView) -> rx.Component:
                             value=DashboardState.note_draft_post_types[day.date],
                             on_change=lambda v: DashboardState.set_note_draft_post_type(day.date, v),
                             size="1",
+                            flex="1",
                         ),
-                        rx.spacer(),
                         rx.button(
                             "Save note",
                             size="1",
                             on_click=DashboardState.save_planned_note(day.date),
+                            flex_shrink="0",
                             **SECONDARY_CTA,
                         ),
                         width="100%",
+                        spacing="2",
                         align="center",
                     ),
                     spacing="2",
@@ -417,6 +452,7 @@ def day_plan_cell(day: DayPlanView) -> rx.Component:
             spacing="2",
             width="100%",
         ),
+        class_name=rx.cond(day.is_today, "hud-card-today", ""),
         width="100%",
     )
 
@@ -501,24 +537,27 @@ def rejected_post_card(post: PostView) -> rx.Component:
 
 
 def nav_bar(active: str) -> rx.Component:
+    """No background box on the active tab - text-muted for inactive tabs, text colour
+    plus a 2px terracotta underline for the active one, full-width border under the
+    whole row (design-reference.html §2: "Top nav")."""
     return rx.hstack(
         *[
             rx.link(
                 rx.text(label, size="2", weight="medium" if href == active else "regular"),
                 href=href,
                 class_name="hud-muted" if href != active else "",
-                style={"color": "var(--accent-bronze)"} if href == active else {},
+                style={"color": "var(--text)"} if href == active else {},
                 text_decoration="none",
-                padding="0.4rem 0.75rem",
-                border_radius="var(--radius)",
-                background="var(--bg-surface-2)" if href == active else "transparent",
+                padding_bottom="0.875rem",
+                border_bottom=f"2px solid {'var(--accent-terracotta)' if href == active else 'transparent'}",
             )
             for label, href in NAV_ITEMS
         ],
-        spacing="2",
+        spacing="6",
         wrap="wrap",
         width="100%",
-        padding_bottom="1rem",
+        border_bottom="1px solid var(--border)",
+        margin_bottom="1.5rem",
     )
 
 

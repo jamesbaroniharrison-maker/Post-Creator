@@ -245,3 +245,58 @@ new month view. Directly unit-tested the underlying query logic and
 `_draft_from_bank_row` outside the Reflex event wrapper (background events are awkward
 to invoke standalone) - confirmed the weekly-committed-count query, the topic-bank
 query, and the draft-and-mark-used flow all work end to end against the real database.
+
+## Full UI overhaul (3 Sept 2026)
+
+Fully specified via two documents provided directly and now checked into the repo
+root: `design-reference.html` (a static mockup - colours, buttons, empty state, a full
+redesigned Home page) and `UI-OVERHAUL.md` (the section-by-section instructions).
+Executed in the prescribed order: tokens, then shared components, then pages.
+
+**Tokens** (`assets/design_tokens.css`): new warm dark palette (`bg #14110F`, `surface
+#1C1815`, `surface-2 #221D19`, `border #2E2822`, `border-strong #3D362E`, `text
+#F2EDE4`, `text-muted #8C8479`), two accents with two jobs that are never swapped -
+gold (`#C9A66B`) for data (stat numbers, focus rings), terracotta (`#BF6E4E`) for
+actions (primary buttons, active nav underline, today's calendar-card border).
+`color_scheme="bronze"` stays unchanged everywhere in the Python code (avoided a
+much larger diff) - it's remapped to the real terracotta hex via the same
+`--bronze-*` CSS custom-property override trick already used for `--gray-*`/
+`--accent-*`, confirmed live rather than assumed to work.
+
+**Shared components** (`dashboard/components.py`): `nav_bar` rebuilt (no background
+box on the active tab, 2px terracotta underline instead); new `empty_state()` used on
+Review/Rejected/Topic Bank/Past Weeks in place of bare muted text; `stat_card` gained
+a `ghost` param for Home's dashed/transparent derived-metrics row; `accepted_filter_bar`
+rebuilt as a real segmented control (one bordered container, no gaps) so it reads as a
+different kind of filter from the week-selector pills above it; `day_plan_cell` gained
+a "Notes" label and a today's-date highlight.
+
+**Real bug hit and fixed while verifying this, not just assumed to work**: the
+today's-date border on the planning calendar rendered with zero visible effect the
+first time - `.rt-Card`'s own `border: ... !important` CSS rule silently defeated a
+plain inline `border=` prop on the same component (an inline style loses to any
+`!important` rule regardless of specificity). Fixed with a dedicated
+`.rt-Card.hud-card-today` class (two combined class selectors beat the bare
+`.rt-Card` rule on specificity) instead of an inline override - confirmed fixed via a
+live headless screenshot showing the terracotta border actually rendering on today's
+card.
+
+**Home page**: stats split into a labelled "This week's activity" solid row plus a
+dashed ghost row, matching the reference; the two separate note/upload flows (each
+with their own button) merged into one "Note or upload" section with a single "Draft
+this post" button - new `DashboardState.submit_weekly_input()` branches server-side on
+whether there's note text or an uploaded file, delegating to the existing
+`submit_text_upload`/`handle_upload` handlers rather than duplicating their logic.
+
+**Settings page**: the one "Quick Actions" card with three unevenly-sized sections
+split into three actual cards in a grid; every input gained a real label instead of
+placeholder-only text; a divider added between the two independent email-timing
+settings; the "Save" button resized/re-styled to match the primary buttons used
+elsewhere on the page.
+
+Verified with real headless-Chromium/Edge screenshots (`--headless=new
+--virtual-time-budget=8000` so the SPA actually hydrates before capture, a technique
+now established in this project - see the "visual design/polish" entry above) across
+all 7 pages, not just a compile check - caught the today-border bug this way, and
+confirmed a separately-observed odd heading colour on one Review-page screenshot was a
+one-off capture glitch (re-screenshotted, didn't reproduce) rather than a real issue.

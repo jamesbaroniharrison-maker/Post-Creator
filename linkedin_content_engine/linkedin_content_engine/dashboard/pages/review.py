@@ -2,7 +2,7 @@
 
 import reflex as rx
 
-from linkedin_content_engine.dashboard.components import page_shell, review_post_card
+from linkedin_content_engine.dashboard.components import empty_state, page_shell, review_post_card
 from linkedin_content_engine.dashboard.state import DISPLAY_DAYS, DashboardState
 
 
@@ -30,7 +30,7 @@ def review_page() -> rx.Component:
     body = rx.cond(
         DashboardState.posts.length() > 0,
         rx.vstack(*[_day_section(day) for day in DISPLAY_DAYS], spacing="5", width="100%"),
-        rx.text("Nothing waiting for review right now.", size="2", class_name="hud-muted"),
+        empty_state("inbox", "All caught up", "Nothing's waiting for review right now - new drafts will show up here."),
     )
     return page_shell(
         "/review",

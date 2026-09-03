@@ -1031,6 +1031,19 @@ class DashboardState(rx.State):
         self.status_message = "Processing upload..."
         return DashboardState.process_uploaded_files(paths)
 
+    @rx.event
+    async def submit_weekly_input(self, files: list[rx.UploadFile]):
+        """Single entry point for Home's merged "Draft this post" button (UI overhaul:
+        one button that works whichever of the note/upload fields has content, instead
+        of two separate flows with their own buttons). Text takes priority if both are
+        somehow present - delegates to the existing text/file handlers rather than
+        duplicating their logic."""
+        if self.upload_text.strip():
+            return DashboardState.submit_text_upload
+        if files:
+            return DashboardState.handle_upload(files)
+        self.status_message = "Nothing to submit - write a note or drop a file first."
+
     @rx.event(background=True)
     async def process_uploaded_files(self, paths: list[str]):
         async with self:
