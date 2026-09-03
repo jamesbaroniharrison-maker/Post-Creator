@@ -41,17 +41,37 @@ generic AI bot."""
 
 # Real discourse markers and vocabulary, not generic advice about tone - gives the
 # model concrete words to reach for instead of defaulting to influencer-speak.
-CHARACTERISTIC_LANGUAGE = """\
-Thought starters / discourse openers you might use: "So, we'll start off with a bit of \
-context...", "The thing is...", "I struggle to differentiate...", "Looking back, I \
-think...", "God, if I'd started then...", "To be fair...", "The biggest thing that \
-held me back..."
+#
+# DISCOURSE_OPENERS/CONVERSATIONAL_BRIDGES are lists, not one static prose block, so
+# draft.py can sample a few per call instead of dumping the whole set every time. Found
+# live (request: "I would repeat things but that doesn't mean every post would
+# include that... it doesn't feel like me"): showing the full list every call meant
+# the model picked the same "safest" one - "The thing is..." - in roughly two of every
+# three drafts, exactly the plagiarise-the-one-full-example failure PERSONA_EXEMPLARS
+# below already hit and was fixed for by sampling instead of dumping the full pool -
+# this list just hadn't gotten the same treatment yet.
+DISCOURSE_OPENERS = [
+    "So, we'll start off with a bit of context...",
+    "The thing is...",
+    "I struggle to differentiate...",
+    "Looking back, I think...",
+    "God, if I'd started then...",
+    "To be fair...",
+    "The biggest thing that held me back...",
+]
 
-Conversational bridges: "It kind of blurs together...", "And you know what? It sucks, \
-but...", "That is an absolute shit show...", "And it's just not for me.", "All that \
-crap." / "...and some shit like that.", "Drives me absolutely nuts.", "If that makes \
-sense."
+CONVERSATIONAL_BRIDGES = [
+    "It kind of blurs together...",
+    "And you know what? It sucks, but...",
+    "That is an absolute shit show...",
+    "And it's just not for me.",
+    "All that crap.",
+    "...and some shit like that.",
+    "Drives me absolutely nuts.",
+    "If that makes sense.",
+]
 
+CHARACTERISTIC_VOCABULARY = """\
 Vocabulary that fits naturally: what makes people tick, expand out as a person, \
 general sphere, identity, how you present yourself, brown-nose, suck up, degrade the \
 work, human level, drive, grind, pull apart, nitpick, middle ground, goldmine, \

@@ -558,3 +558,46 @@ it wasn't today's highest-leverage item, but worth doing the same "split into a
 narrow retry" treatment that already fixed the JSON-echo and PII-scrub reliability
 bugs (see the engineering lessons list near the top of this file) - flagging here
 so it doesn't get lost.
+
+## Found and fixed why drafts kept repeating "The thing is..." (3 Sept 2026)
+
+Request: "I don't have a fan of those. They are repeating phrases too much... I would
+repeat things but that doesn't mean every post would include that. I want it to feel
+more like me." Traced it to a real, specific root cause, not just tone-tweaked the
+prompt and hoped: `persona.py`'s `CHARACTERISTIC_LANGUAGE` block listed 7 "discourse
+openers" (including `"The thing is..."`) and 8 "conversational bridges" as one static
+prose string, dumped into the drafting prompt **in full, every single call**. The
+model wasn't sampling among them - it was defaulting to whichever read as the
+safest/most generic one, "The thing is...", in roughly two of the three example
+drafts shown.
+
+This is the exact same failure mode `draft_post`'s existing comment already documents
+for `PERSONA_EXEMPLARS` a few lines below it: "with all 4 persona exemplars shown
+every call, the model repeatedly plagiarised one almost verbatim... a smaller,
+rotating sample gives it less of a single complete example to copy wholesale." That
+fix (`random.sample`, 2 of the pool per call) was already in place for the exemplars -
+the discourse-opener/bridge list just never got the same treatment.
+
+Fix, mirroring the proven pattern rather than inventing a new one: `persona.py`'s
+`CHARACTERISTIC_LANGUAGE` string is now two real lists, `DISCOURSE_OPENERS` (7) and
+`CONVERSATIONAL_BRIDGES` (7), plus `CHARACTERISTIC_VOCABULARY` (unchanged, prose - the
+vocabulary list wasn't the repetition problem). New `draft.py::_sample_characteristic_
+language()` samples 3 of each per call and adds an explicit instruction the static
+version never had: "most posts shouldn't use any of them at all, and none of them
+should show up in back-to-back posts." Verified for real: called the sampler directly
+three times and confirmed a different subset each time, then ran a full draft through
+`generate_and_save_draft` end to end (topic: a debugging-weekend personal reflection) -
+it landed cleanly with no exception and didn't open with "The thing is." One clean run
+isn't proof the phrase can never recur (it's still one of 7 openers, still shown some
+of the time by design), but it's no longer the same 15 words handed to the model
+unconditionally on every single call, which was the actual mechanism causing the
+overuse. Compiled clean afterward (36/35 routes, unchanged from before this fix).
+
+This is a real corpus-adjacent fix but a separate lever from the corpus itself:
+answered James's direct question ("how can I improve the corpus") by pointing at the
+new `/voice` page from the entry above - paste 8-15 real past posts in, then hit
+"Regenerate voice profile." More real samples means richer, more varied `few_shot_
+examples`/`llm_close_read` output competing for space in the prompt against the
+hand-authored `PERSONA_EXEMPLARS`, which is a second, independent way the "sounds
+like a placeholder, not like me" problem gets better over time - this fix and a
+richer corpus both push in the same direction, neither replaces the other.

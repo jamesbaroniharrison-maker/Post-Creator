@@ -19,7 +19,9 @@ import httpx
 
 from linkedin_content_engine.drafting_engine.persona import (
     CADENCE_MECHANICS,
-    CHARACTERISTIC_LANGUAGE,
+    CHARACTERISTIC_VOCABULARY,
+    CONVERSATIONAL_BRIDGES,
+    DISCOURSE_OPENERS,
     PERSONA_DESCRIPTION,
     PERSONA_EXEMPLARS,
     PROHIBITED_PATTERNS,
@@ -501,6 +503,27 @@ def _scrub_note(note: str) -> tuple[str, bool]:
     return retried, verified
 
 
+def _sample_characteristic_language() -> str:
+    """Same reasoning as draft_post's few-shot sampling below: shown the full opener/
+    bridge lists every call, the model didn't treat them as flavour options, it
+    treated "The thing is..." as *the* answer and reused it in most posts (request:
+    "I would repeat things but that doesn't mean every post would include that...
+    it doesn't feel like me"). A smaller rotating sample per call, like the persona
+    exemplars already get, means there's no single "safest" option sitting there
+    every time."""
+    openers = random.sample(DISCOURSE_OPENERS, min(3, len(DISCOURSE_OPENERS)))
+    bridges = random.sample(CONVERSATIONAL_BRIDGES, min(3, len(CONVERSATIONAL_BRIDGES)))
+    openers_str = ", ".join(f'"{o}"' for o in openers)
+    bridges_str = ", ".join(f'"{b}"' for b in bridges)
+    return (
+        f"Thought starters / discourse openers you might use: {openers_str}\n\n"
+        f"Conversational bridges: {bridges_str}\n\n"
+        "These are optional flavour, not a phrase bank to draw from every post - most posts "
+        "shouldn't use any of them at all, and none of them should show up in back-to-back posts.\n\n"
+        f"{CHARACTERISTIC_VOCABULARY}"
+    )
+
+
 def draft_post(
     topic: str,
     voice_profile: dict,
@@ -538,7 +561,7 @@ def draft_post(
 
     system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(
         persona=PERSONA_DESCRIPTION,
-        characteristic_language=CHARACTERISTIC_LANGUAGE,
+        characteristic_language=_sample_characteristic_language(),
         cadence_mechanics=CADENCE_MECHANICS,
         about_me=_load_about_me(),
         prohibited_patterns=PROHIBITED_PATTERNS,
