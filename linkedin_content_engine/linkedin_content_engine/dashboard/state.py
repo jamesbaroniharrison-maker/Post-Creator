@@ -36,6 +36,7 @@ from linkedin_content_engine.models import (
 )
 from linkedin_content_engine.research_cron.pipeline import JOB_NAME as RESEARCH_JOB_NAME
 from linkedin_content_engine.research_cron.pipeline import run_daily_research
+from linkedin_content_engine.utils import as_utc
 from linkedin_content_engine.voice_engine.build_profile import build_and_save_profile
 from linkedin_content_engine.voice_engine.ingestion import add_sample
 from linkedin_content_engine.scheduling import (
@@ -650,9 +651,7 @@ class DashboardState(rx.State):
             self.last_research_run_display = "no successful run yet"
             self.last_research_run_stale = False
             return
-        last_run = row.last_run_at
-        if last_run.tzinfo is None:
-            last_run = last_run.replace(tzinfo=timezone.utc)
+        last_run = as_utc(row.last_run_at)
         age = datetime.now(timezone.utc) - last_run
         self.last_research_run_display = last_run.strftime("%a %d %b, %H:%M UTC")
         self.last_research_run_stale = age > timedelta(hours=36)
@@ -737,12 +736,12 @@ class DashboardState(rx.State):
         acceptance_rate = f"{100 * accepted / decided:.0f}%" if decided else "n/a"
 
         review_times = [
-            (p.reviewed_at - p.created_at).total_seconds() / 3600
+            (as_utc(p.reviewed_at) - as_utc(p.created_at)).total_seconds() / 3600
             for p in all_posts
             if p.reviewed_at is not None
         ]
         publish_times = [
-            (p.published_at - p.reviewed_at).total_seconds() / 3600
+            (as_utc(p.published_at) - as_utc(p.reviewed_at)).total_seconds() / 3600
             for p in all_posts
             if p.published_at is not None and p.reviewed_at is not None
         ]
@@ -784,7 +783,7 @@ class DashboardState(rx.State):
         cutoff = datetime.now(timezone.utc) - timedelta(weeks=HISTORY_WEEKS_LIMIT)
         week_counts: dict[str, int] = {}
         for p in all_posts:
-            if p.created_at >= cutoff:
+            if as_utc(p.created_at) >= cutoff:
                 wk = _week_label(p.created_at)
                 week_counts[wk] = week_counts.get(wk, 0) + 1
         self.stats_by_week = _breakdown(week_counts, sort_by_count=False)

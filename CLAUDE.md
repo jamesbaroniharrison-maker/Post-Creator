@@ -626,3 +626,77 @@ made); mocked it to always fail - confirmed it correctly raises after exhausting
 retries (3 attempts: 1 + 2 retries), rather than retrying forever or swallowing the
 error silently. Then ran one real draft end to end through the actual pipeline
 (`generate_and_save_draft`, no mocking) to confirm nothing broke - landed cleanly.
+
+## Real Tailscale + email + the actual Topic Bank bug, finally closed (3 Sept 2026)
+
+Request: "do everything that you can" - a follow-up to an earlier "what else can be
+done" menu. Four items, each pushed as far as it could genuinely go without James at
+the keyboard:
+
+**Tailscale finished on its own**: the `winget install` that looked stalled on a UAC
+prompt earlier actually completed in the background. Ran `tailscale up`, got a
+one-time device-auth link, and - since that link only needs a browser, not the PC -
+sent it straight to James to open on his phone. Confirmed both sides came up: PC is
+`desktop-a2etve9`/`100.95.165.19` on the tailnet, phone (`iphone-13-pro`) later showed
+as `active` in `tailscale status`. Created the dashboard login (`james`, initially a
+generated password, later changed to one James chose) and verified `curl` against the
+Tailscale IP hit both frontend and backend with 200s before handing over the link -
+confirmed the frontend derives its backend URL from `window.location.hostname`
+(`.web/utils/state.js:110`), not a hardcoded localhost string, so this works correctly
+regardless of which non-default port a given `reflex run` lands on.
+
+**Email settings actually finished**: `.env` already had real SMTP credentials sitting
+unused - the `emailsettings` table just had no row, because nobody had ever clicked
+Save on the dashboard's Email Reminders card. Called `save_email_settings()` directly
+with the recipient set to James's own email and the code's own built-in defaults
+(Friday 9am reminder, Sunday 12pm digest - already the model's defaults, not invented
+here). Verified for real, not just assumed configured: sent an actual test email
+through `send_email()` using the live credentials - delivered successfully.
+
+**The real Topic Bank bug, found at last**: every earlier attempt to verify this page
+predates login being added back, or predated a database with any real posts in it -
+so the page was never actually reachable in a state that could reveal the real
+problem. Installed Playwright (`pip install playwright`, `playwright install
+chromium`) in the venv specifically to script a real login (fill the form, click
+Sign in) followed by a real page-by-page check - something no CLI screenshot tool
+could do once login existed. That surfaced the actual error, visible in the page body
+itself: **"Couldn't load the dashboard (can't compare offset-naive and
+offset-aware datetimes)."** `load_dashboard`'s try/except was silently swallowing a
+real Python `TypeError` and showing its generic fallback message instead - on every
+single page, not just Topic Bank. It was never a rendering/hydration issue.
+
+Root cause: every datetime field in this codebase is written with
+`datetime.now(timezone.utc)` (aware), but SQLite has no real timezone-aware storage
+type, so SQLAlchemy reads every one of them back **naive**. Any code that compares a
+DB-read datetime directly against a freshly-made aware one crashes. This had been
+latent since the "Weekly plan template... Statistics" batch introduced
+`_reload_full_stats`'s week-cutoff filter (`if p.created_at >= cutoff`) - it just
+never had a *non-empty* `all_posts` list to actually execute against until the 5
+example drafts generated a few turns ago gave it something to compare.
+
+New `linkedin_content_engine/utils.py::as_utc(dt)` - a naive datetime read from the DB
+was written as UTC, so treating it as UTC on the way back out is correct, not a
+guess. Applied everywhere a DB-read datetime gets compared/subtracted against another
+Python datetime object (SQL-level `.where(sqlmodel.col(...) >= x)` filters were
+already safe and untouched - the bug is specifically about two already-loaded Python
+datetime objects meeting each other):
+- `dashboard/state.py`: `_reload_stats`'s review/publish-time averages, `_reload_full_
+  stats`'s week-cutoff filter, and `_reload_job_status` (simplified to use the shared
+  helper instead of its own inline guard added earlier today).
+- `email_engine/reminder.py` and `email_engine/digest.py`: both `_already_sent_this_
+  week` functions had the identical bug - would have crashed the very first time
+  either scheduled email job ever found a matching `JobRun` row, i.e. on its second
+  real send. Found and fixed *before* it could ever fire for real, not after.
+
+Verified for real end to end: restarted the dev server, ran the same Playwright script
+against it - zero "Couldn't load" errors on any of 9 pages, Topic Bank showing its
+real 18+ banked findings with correct tier/category badges and working buttons
+(screenshot confirmed), and Statistics' "Posts per week" card - the exact code path
+touched - populated correctly instead of silently staying empty.
+
+**Still can't be done remotely**: the elevated re-run of `register_scheduled_task.ps1`
+(needs a UAC click), and the PC reboot that would clear out this session's own pile of
+stuck zombie dev-server processes on ports 3000-8011 (a full reboot is a real
+disruptive action on James's machine - not done without asking first, unlike
+everything else in this entry which was either fully reversible or explicitly
+requested).

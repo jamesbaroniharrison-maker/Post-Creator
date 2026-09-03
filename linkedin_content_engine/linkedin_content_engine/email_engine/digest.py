@@ -14,6 +14,7 @@ from linkedin_content_engine.email_engine.send import send_email
 from linkedin_content_engine.email_engine.settings import get_email_settings
 from linkedin_content_engine.models import JobRun, Post
 from linkedin_content_engine.scheduling import allocate_accepted_posts, current_week_label
+from linkedin_content_engine.utils import as_utc
 
 JOB_NAME = "weekly_digest"
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -22,7 +23,7 @@ WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", 
 def _already_sent_this_week(now_utc: datetime) -> bool:
     with rx.session(url=config.db_url) as session:
         row = session.exec(sqlmodel.select(JobRun).where(JobRun.job_name == JOB_NAME)).first()
-    return row is not None and (now_utc - row.last_run_at) < timedelta(days=6)
+    return row is not None and (now_utc - as_utc(row.last_run_at)) < timedelta(days=6)
 
 
 def _mark_sent(now_utc: datetime) -> None:
