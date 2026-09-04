@@ -91,6 +91,7 @@ class PostView(pydantic.BaseModel):
     structural_format_label: str = ""
     media_pairing_label: str = ""
     media_note: str = ""
+    voice_delta_label: str = ""
 
 
 class BankView(pydantic.BaseModel):
@@ -183,6 +184,20 @@ def _week_label(dt: datetime) -> str:
     return f"Week of {monday.strftime('%d %b %Y')}"
 
 
+def _voice_delta_label(delta: float | None) -> str:
+    """Human label for Burrows' Delta (voice_engine/similarity.py) - lower is closer
+    to the real corpus. Thresholds are provisional, calibrated against a small real
+    sample (real drafts scored ~0.8-1.0, a deliberately corporate/buzzword paragraph
+    scored ~1.8) - worth re-checking these bands once the corpus has grown."""
+    if delta is None:
+        return ""
+    if delta < 1.2:
+        return f"Voice match: close ({delta})"
+    if delta < 1.6:
+        return f"Voice match: typical ({delta})"
+    return f"Voice match: distant ({delta})"
+
+
 def _row_to_view(p: Post) -> PostView:
     return PostView(
         id=p.id,
@@ -208,6 +223,7 @@ def _row_to_view(p: Post) -> PostView:
         structural_format_label=humanize(p.structural_format or ""),
         media_pairing_label=humanize(p.media_pairing or ""),
         media_note=p.media_note or "",
+        voice_delta_label=_voice_delta_label(p.voice_delta),
     )
 
 

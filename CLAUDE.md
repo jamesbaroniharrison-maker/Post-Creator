@@ -777,3 +777,64 @@ posts James had added independently since the page shipped, a good sign the feat
 was already getting used). Deleted the 3 fabricated test samples afterward so they
 wouldn't pollute the real corpus this feature exists to keep clean - the 7 real
 LinkedIn posts were left untouched.
+
+## Real stylometry, not the fine-tuning fantasy from a Gemini screenshot (4 Sept 2026)
+
+James sent screenshots of a generic Gemini answer to "how do systems replicate a
+writing voice" - KL-divergence distribution matching, DPO preference fine-tuning,
+LoRA weight adapters, InfoNCE contrastive embedding retrieval - and asked for it to
+be implemented while he was on a flight and unreachable. Flagged directly rather than
+just attempting it: that answer describes the general ML-research space for style
+transfer, not this specific codebase, and most of it (DPO, LoRA, KL-matching against
+a reference distribution) needs training infrastructure that doesn't exist here and
+was never part of this project's design - no GPU fine-tuning pipeline, no base model
+weights to adapt, no preference dataset. This app calls Ollama/Gemini's inference
+APIs with a prompt; there's no training step to attach a fine-tuning technique to.
+Implementing those literally would mean building a different kind of system, not
+improving this one.
+
+Two of the five ideas *are* real, well-understood techniques implementable without
+any training infrastructure, so those got built for real:
+
+**Burrows' Delta** (new `voice_engine/similarity.py::burrows_delta()`) - a genuine,
+long-established authorship-attribution statistic (Burrows, 2002), not something
+invented for this project. Scores how far a candidate text's function-word frequency
+profile sits from the corpus's own normal range (mean/std per word, z-scored),
+averaged across the `vocab_size` most frequent words in the corpus itself
+(deliberately including stopwords/function words, unlike `keyness.py` - Delta
+specifically wants the highest-frequency words, which content-word keyness
+excludes). Verified for real, not just implemented and trusted: an artificial
+short (~20-word) test snippet gave a nonsensical result at first, which turned out
+to be a real limitation of the statistic itself on very short text (too few words to
+estimate a stable frequency), not a bug - confirmed by re-testing against real,
+realistic-length draft posts, where 4 real drafts scored 0.84-1.04 and a deliberately
+corporate/buzzword paragraph scored 1.76, a clean, sensible separation.
+
+Wired into `drafting_engine/pipeline.py::generate_draft_with_research` - every new
+draft gets scored against the live corpus (`get_all_sample_texts()`, read fresh at
+draft time, not a stale profile-build snapshot) and stored as `Post.voice_delta`
+(migration `2868f56ede2b`, a plain nullable float column). Surfaced on the Review
+page as "Voice match: close/typical/distant (raw score)" - thresholds (<1.2 close,
+<1.6 typical, else distant) are explicitly provisional, calibrated against this
+session's tiny real sample, and noted as such in the code rather than presented as
+settled science.
+
+**Topic-similarity few-shot retrieval** (new `voice_engine/similarity.py::most_
+similar_texts()`) - the honest version of "contrastive style embedding retrieval"
+for a stack with no embedding model: bag-of-words cosine similarity between the
+current topic and each real corpus sample, not trained embeddings. `draft_post`
+(`drafting_engine/draft.py`) now builds a shortlist of the 4 most topically-similar
+real samples live at draft time (instead of the profile's fixed length-based set of
+3, picked once at profile-build time) and randomly samples 2 for the prompt -
+keeping the same anti-plagiarism randomness the persona exemplars already rely on
+while biasing toward samples that actually match what this specific post is about.
+Verified directly: queried with a prompt about a plan falling through and having to
+reset, and it correctly retrieved the breakup/reset story and the "moving the
+needle" founder-advice sample as the two most similar - exactly the two most
+topically relevant of the 6 real samples.
+
+Verified end to end, not just unit-by-unit: ran a real draft through the full
+pipeline with both changes live - landed cleanly, `voice_delta` came back 0.921
+("close"), and the Review page rendered "Voice match: close (0.921)" exactly as
+intended (confirmed via a cropped real-browser screenshot of the actual card, not
+just the underlying data).

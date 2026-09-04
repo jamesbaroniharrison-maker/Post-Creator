@@ -260,6 +260,10 @@ def review_post_card(post: PostView) -> rx.Component:
                 post.media_note != "",
                 rx.text(f"Media: {post.media_note}", size="1", class_name="hud-muted"),
             ),
+            rx.cond(
+                post.voice_delta_label != "",
+                rx.text(post.voice_delta_label, size="1", class_name="hud-muted"),
+            ),
             post_editable_body(post),
             rx.hstack(
                 rx.button("Accept", on_click=DashboardState.accept(post.id), **PRIMARY_CTA),

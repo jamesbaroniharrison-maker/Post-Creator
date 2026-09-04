@@ -27,6 +27,8 @@ from linkedin_content_engine.drafting_engine.persona import (
     PERSONA_EXEMPLARS,
     PROHIBITED_PATTERNS,
 )
+from linkedin_content_engine.voice_engine.ingestion import get_all_sample_texts
+from linkedin_content_engine.voice_engine.similarity import most_similar_texts
 
 _ABOUT_ME_PATH = pathlib.Path(__file__).resolve().parent.parent / "context" / "about_me.md"
 
@@ -576,7 +578,18 @@ def draft_post(
     # all 4 persona exemplars shown every call, the model repeatedly plagiarised one
     # almost verbatim as its opening instead of just matching its style - a smaller,
     # rotating sample gives it less of a single complete example to copy wholesale.
-    _few_shot_pool = [*PERSONA_EXEMPLARS, *voice_profile.get("few_shot_examples", [])]
+    #
+    # Real-corpus examples are picked by topic similarity, not the profile's fixed
+    # length-based set - the honest, no-embedding-model version of "retrieve the
+    # example closest to this post's actual angle": bag-of-words cosine similarity
+    # against the live corpus (voice_engine/similarity.py), read fresh here rather
+    # than from whatever was cached in the profile at its last regeneration. A
+    # shortlist of 4, not the single top match, keeps some of the same
+    # anti-plagiarism randomness as the persona exemplars above rather than showing
+    # the identical "most similar" example on every post about a similar topic.
+    _real_samples = get_all_sample_texts()
+    _topic_shortlist = most_similar_texts(topic, _real_samples, n=min(4, len(_real_samples)))
+    _few_shot_pool = [*PERSONA_EXEMPLARS, *(_topic_shortlist or voice_profile.get("few_shot_examples", []))]
     few_shot_examples = random.sample(_few_shot_pool, min(2, len(_few_shot_pool)))
 
     system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(

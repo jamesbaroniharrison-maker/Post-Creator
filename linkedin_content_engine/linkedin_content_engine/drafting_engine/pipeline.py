@@ -16,6 +16,8 @@ from linkedin_content_engine.drafting_engine.draft import draft_post
 from linkedin_content_engine.drafting_engine.research import ResearchResult, research_topic
 from linkedin_content_engine.drafting_engine.rotation import assign_rotation
 from linkedin_content_engine.models import Post, VoiceProfile
+from linkedin_content_engine.voice_engine.ingestion import get_all_sample_texts
+from linkedin_content_engine.voice_engine.similarity import burrows_delta
 
 
 def load_voice_profile() -> dict:
@@ -43,6 +45,11 @@ def generate_draft_with_research(
     rotation = assign_rotation()
     draft = draft_post(topic, voice_profile, research, rotation)
 
+    # Scored against the corpus as it stands right now, not at profile-build time -
+    # so this reflects whatever samples exist at the moment this specific post was
+    # drafted, not a stale snapshot from whenever the profile was last regenerated.
+    voice_delta = burrows_delta(draft.text, get_all_sample_texts())
+
     post = Post(
         post_type=post_type,
         status="drafted",
@@ -60,6 +67,7 @@ def generate_draft_with_research(
         structural_format=rotation["structural_format"],
         media_pairing=rotation["media_pairing"],
         media_note=draft.media_note,
+        voice_delta=voice_delta,
     )
     with rx.session(url=config.db_url) as session:
         session.add(post)

@@ -59,6 +59,10 @@ class Post(rx.Model, table=True):
     structural_format: str | None = None  # narrative / skimmable_index / binary_contrast
     media_pairing: str | None = None  # candid_photo / carousel / infographic / screenshot / chart / text_only
     media_note: str | None = None  # what the paired visual should actually show, from the drafting call
+    # Burrows' Delta (voice_engine/similarity.py) between this draft and the real
+    # voice corpus at the moment it was drafted - lower is closer to your real writing.
+    # None when there wasn't enough corpus yet to score against (fewer than 2 samples).
+    voice_delta: float | None = None
 
 
 class VoiceSample(rx.Model, table=True):
