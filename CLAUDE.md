@@ -838,3 +838,21 @@ pipeline with both changes live - landed cleanly, `voice_delta` came back 0.921
 ("close"), and the Review page rendered "Voice match: close (0.921)" exactly as
 intended (confirmed via a cropped real-browser screenshot of the actual card, not
 just the underlying data).
+
+## Fixed the JSON-retry fix: it never actually retried HTTP failures (4 Sept 2026)
+
+Follow-up to the real Gemini 500-error incident earlier the same day (see "Regenerate
+the voice" test posts entry) - `_chat_and_parse_draft`'s retry loop
+(`drafting_engine/draft.py`, added earlier to fix a different bug) had `_chat(...)`
+called *outside* the `try` block. That meant the one exception type it was actually
+built to survive - a transient API failure - could never reach the `except` clause
+at all, retries or not; only a malformed JSON response from an otherwise-successful
+call ever got retried. Moved the `_chat(...)` call inside the `try`, added
+`httpx.HTTPError` to the caught exception types alongside the existing JSON/
+validation ones.
+
+Verified the same way as the original fix: mocked `_chat` to raise an
+`httpx.HTTPStatusError` once then succeed - confirmed it retries and returns the
+correct result; mocked it to always raise - confirmed it correctly gives up after
+exhausting retries rather than looping forever. Restarted the live server afterward
+to confirm nothing else broke (compiled clean, 36/35 routes).

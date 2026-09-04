@@ -508,19 +508,22 @@ def _scrub_note(note: str) -> tuple[str, bool]:
 
 def _chat_and_parse_draft(system_prompt: str, user_content: str, retries: int = 2) -> DraftOutput:
     """Call the model and parse its response as DraftOutput, retrying on a malformed
-    response instead of letting the whole draft crash. Found live (request: "3
-    example posts" - the second draft threw json.decoder.JSONDecodeError with no
-    retry anywhere) - the audit-gate and privacy-scrub calls both already retry once
-    on a bad result, this one just never got the same treatment. A malformed JSON
-    response is a real, if occasional, local-model failure mode (same root cause as
-    the documented llama3.2 JSON-echo bug), not something worth failing the whole
-    draft over when a second attempt usually just works."""
+    response OR a transient API failure instead of letting the whole draft crash.
+
+    Originally only retried json.JSONDecodeError/pydantic.ValidationError (found live
+    when "3 example posts" - the second draft threw JSONDecodeError with no retry
+    anywhere). That fix had its own real bug, also found live: `_chat(...)` was called
+    *outside* the try block, so an HTTP-level failure (confirmed live: 3 consecutive
+    real 500 Internal Server Errors from Gemini's drafting endpoint, which cleared up
+    on manual retry) was never caught or retried at all regardless of `retries` - the
+    call itself has to be inside the try for either failure mode to actually get a
+    second attempt."""
     last_error: Exception | None = None
     for attempt in range(retries + 1):
-        content = _chat(system_prompt, user_content)
         try:
+            content = _chat(system_prompt, user_content)
             return DraftOutput.model_validate(json.loads(content))
-        except (json.JSONDecodeError, pydantic.ValidationError) as exc:
+        except (json.JSONDecodeError, pydantic.ValidationError, httpx.HTTPError) as exc:
             last_error = exc
     raise last_error
 
