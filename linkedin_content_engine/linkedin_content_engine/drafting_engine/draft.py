@@ -529,24 +529,42 @@ def _chat_and_parse_draft(system_prompt: str, user_content: str, retries: int = 
     raise last_error
 
 
-def _sample_characteristic_language() -> str:
+def _sample_characteristic_language(voice_profile: dict) -> str:
     """Same reasoning as draft_post's few-shot sampling below: shown the full opener/
     bridge lists every call, the model didn't treat them as flavour options, it
     treated "The thing is..." as *the* answer and reused it in most posts (request:
     "I would repeat things but that doesn't mean every post would include that...
     it doesn't feel like me"). A smaller rotating sample per call, like the persona
     exemplars already get, means there's no single "safest" option sitting there
-    every time."""
+    every time.
+
+    Also appends a sample of Zeta words (voice_engine/similarity.py::compute_zeta_
+    words) - real words pulled from the actual corpus that show up across most of
+    what you've written, regardless of topic, rather than the hand-authored
+    CHARACTERISTIC_VOCABULARY list above it. Sampled, not dumped in full, for the
+    same anti-overfit reason as everything else here."""
     openers = random.sample(DISCOURSE_OPENERS, min(3, len(DISCOURSE_OPENERS)))
     bridges = random.sample(CONVERSATIONAL_BRIDGES, min(3, len(CONVERSATIONAL_BRIDGES)))
     openers_str = ", ".join(f'"{o}"' for o in openers)
     bridges_str = ", ".join(f'"{b}"' for b in bridges)
+
+    zeta_words = voice_profile.get("zeta_words", [])
+    zeta_block = ""
+    if zeta_words:
+        sample_zeta = random.sample(zeta_words, min(8, len(zeta_words)))
+        zeta_block = (
+            "\n\nWords pulled from your real writing that show up across most of what "
+            "you've written, regardless of topic - use naturally where they fit, don't "
+            "force them in: " + ", ".join(sample_zeta)
+        )
+
     return (
         f"Thought starters / discourse openers you might use: {openers_str}\n\n"
         f"Conversational bridges: {bridges_str}\n\n"
         "These are optional flavour, not a phrase bank to draw from every post - most posts "
         "shouldn't use any of them at all, and none of them should show up in back-to-back posts.\n\n"
         f"{CHARACTERISTIC_VOCABULARY}"
+        f"{zeta_block}"
     )
 
 
@@ -605,7 +623,7 @@ def draft_post(
 
     system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(
         persona=PERSONA_DESCRIPTION,
-        characteristic_language=_sample_characteristic_language(),
+        characteristic_language=_sample_characteristic_language(voice_profile),
         cadence_mechanics=CADENCE_MECHANICS,
         about_me=_load_about_me(),
         prohibited_patterns=PROHIBITED_PATTERNS,

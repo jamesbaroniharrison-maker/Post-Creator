@@ -9,8 +9,9 @@ import sqlmodel
 from rxconfig import config
 from linkedin_content_engine.models import VoiceProfile
 from linkedin_content_engine.voice_engine.close_read import llm_close_read
-from linkedin_content_engine.voice_engine.ingestion import get_all_sample_texts
+from linkedin_content_engine.voice_engine.ingestion import get_all_sample_texts, get_weighted_samples
 from linkedin_content_engine.voice_engine.keyness import compute_keyness
+from linkedin_content_engine.voice_engine.similarity import compute_characteristic_bigrams, compute_zeta_words
 from linkedin_content_engine.voice_engine.structural import compute_structural_stats
 
 # Picking the shortest posts would mostly surface one-line reactions ("Very proud of
@@ -30,6 +31,7 @@ def _pick_few_shot_examples(texts: list[str]) -> list[str]:
 def build_profile() -> dict:
     """Run the full voice-profile pipeline against every banked sample. Does not save."""
     texts = get_all_sample_texts()
+    weighted = get_weighted_samples()
 
     profile = {
         "sample_count": len(texts),
@@ -37,6 +39,13 @@ def build_profile() -> dict:
         "structural": compute_structural_stats(texts),
         "llm_close_read": llm_close_read(texts),
         "few_shot_examples": _pick_few_shot_examples(texts),
+        # Zeta (voice_engine/similarity.py) - words present in most of your documents
+        # regardless of topic, fed into the drafting prompt alongside the hand-authored
+        # persona vocabulary. Bigrams are diagnostic only (Voice page display) - real
+        # signal but not yet distinctive enough at this corpus size to safely inject
+        # into generation (see similarity.py's docstring for why).
+        "zeta_words": compute_zeta_words(weighted),
+        "characteristic_bigrams": compute_characteristic_bigrams(weighted),
     }
     return profile
 

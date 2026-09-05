@@ -270,11 +270,63 @@ def _add_conversation_card() -> rx.Component:
     )
 
 
+def _word_chip(word: rx.Var) -> rx.Component:
+    return rx.badge(word, variant="soft", size="1")
+
+
+def _stats_card() -> rx.Component:
+    """Real, corpus-derived stats (voice_engine/similarity.py), surfaced so James
+    can see what the profile is actually picking up on rather than trust it blindly.
+    Zeta words feed the drafting prompt directly; bigrams are diagnostic only for now
+    - not yet distinctive enough at this corpus size to inject into generation (see
+    similarity.py's docstring)."""
+    return rx.card(
+        rx.vstack(
+            rx.heading("What the profile has picked up on", size="4"),
+            rx.text(
+                "Words you reach for across most of what you've written, regardless of "
+                "topic - these feed directly into how new posts get drafted.",
+                size="2",
+                class_name="hud-muted",
+            ),
+            rx.cond(
+                DashboardState.voice_zeta_words.length() > 0,
+                rx.hstack(
+                    rx.foreach(DashboardState.voice_zeta_words, _word_chip),
+                    spacing="2",
+                    wrap="wrap",
+                ),
+                rx.text("Not enough corpus yet to say.", size="2", class_name="hud-muted"),
+            ),
+            rx.text(
+                "Two-word phrases that repeat across your writing - shown for visibility "
+                "only, not yet used in drafting until there's more corpus to work with.",
+                size="2",
+                class_name="hud-muted",
+                margin_top="0.5rem",
+            ),
+            rx.cond(
+                DashboardState.voice_characteristic_bigrams.length() > 0,
+                rx.hstack(
+                    rx.foreach(DashboardState.voice_characteristic_bigrams, _word_chip),
+                    spacing="2",
+                    wrap="wrap",
+                ),
+                rx.text("Not enough corpus yet to say.", size="2", class_name="hud-muted"),
+            ),
+            spacing="3",
+            width="100%",
+        ),
+        width="100%",
+    )
+
+
 @reflex_local_auth.require_login
 def voice_page() -> rx.Component:
     return page_shell(
         "/voice",
         _samples_card(),
+        _stats_card(),
         _add_sample_card(),
         _add_qa_card(),
         _add_conversation_card(),

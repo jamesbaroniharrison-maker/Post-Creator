@@ -306,6 +306,11 @@ class DashboardState(rx.State):
     voice_samples: list[VoiceSampleView] = []
     voice_new_sample_text: str = ""
     voice_profile_status: str = "no profile generated yet"
+    # Zeta words (real, corpus-derived - voice_engine/similarity.py::compute_zeta_
+    # words) and repeated bigrams, surfaced so James can see what the profile is
+    # actually picking up on, not just trust it blindly.
+    voice_zeta_words: list[str] = []
+    voice_characteristic_bigrams: list[str] = []
 
     # Gemini Q&A samples (request: "I'm having conversations with Gemini... it's
     # asking me a question, and I'm putting a text answer" - the answers are real,
@@ -1399,11 +1404,16 @@ class DashboardState(rx.State):
         ]
         if profile is None:
             self.voice_profile_status = "no profile generated yet"
+            self.voice_zeta_words = []
+            self.voice_characteristic_bigrams = []
         else:
             self.voice_profile_status = (
                 f"generated {profile.generated_at.strftime('%d %b %Y')} from "
                 f"{len(self.voice_samples)} current sample(s)"
             )
+            profile_data = json.loads(profile.profile_json)
+            self.voice_zeta_words = profile_data.get("zeta_words", [])
+            self.voice_characteristic_bigrams = profile_data.get("characteristic_bigrams", [])
 
     @rx.event
     def set_voice_new_sample_text(self, value: str):

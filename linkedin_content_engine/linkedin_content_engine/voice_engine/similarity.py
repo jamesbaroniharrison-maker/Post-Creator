@@ -20,6 +20,8 @@ import math
 import re
 from collections import Counter
 
+from linkedin_content_engine.voice_engine.keyness import _STOPWORDS
+
 _WORD_RE = re.compile(r"[a-zA-Z']+")
 
 WeightedCorpus = list[tuple[str, float]]
@@ -123,3 +125,60 @@ def burrows_delta(candidate_text: str, corpus: WeightedCorpus, vocab_size: int =
     if not z_diffs:
         return None
     return round(sum(z_diffs) / len(z_diffs), 3)
+
+
+def compute_zeta_words(corpus: WeightedCorpus, min_doc_frequency: float = 0.5, top_n: int = 20) -> list[str]:
+    """Burrows'/Craig's Zeta - a different question from Delta's "how far off is the
+    usual mix of words": which words show up in most of your documents *regardless
+    of topic*, i.e. words you reliably reach for rather than words that just happen
+    to be common. Uses document presence (a word either appears in a document or it
+    doesn't, once per document no matter how many times it's repeated), weighted by
+    each document's authenticity weight - so a word you use in every one of your
+    Gemini answers counts more toward "signature" than one that only shows up in a
+    single LinkedIn post. Excludes the same stopword list keyness.py does - Zeta,
+    unlike Delta, wants distinctive vocabulary, not function words.
+
+    Confirmed live on the real corpus before trusting this: "have" showed up in
+    100% of documents, "just"/"really"/"proud"/"know" in the majority - a genuinely
+    informative signature list even at only 6 real samples, unlike the bigram
+    extraction below which needed a much bigger corpus to say anything useful."""
+    if not corpus:
+        return []
+    total_weight = sum(weight for _, weight in corpus)
+    if total_weight <= 0:
+        return []
+
+    doc_weight_for_word: dict[str, float] = {}
+    for text, weight in corpus:
+        seen = {w for w in _tokenize(text) if len(w) > 2 and w not in _STOPWORDS}
+        for w in seen:
+            doc_weight_for_word[w] = doc_weight_for_word.get(w, 0.0) + weight
+
+    signature = [
+        (w, freq / total_weight) for w, freq in doc_weight_for_word.items() if freq / total_weight >= min_doc_frequency
+    ]
+    signature.sort(key=lambda pair: pair[1], reverse=True)
+    return [w for w, _ in signature[:top_n]]
+
+
+def compute_characteristic_bigrams(corpus: WeightedCorpus, top_n: int = 15) -> list[str]:
+    """Diagnostic only for now - Voice page display, NOT fed into the drafting
+    prompt. Two-word sequences that repeat across the corpus, weighted by
+    authenticity. Confirmed live this is real signal but not yet distinctive signal
+    at a corpus this size: what actually repeats across only 6 documents is mostly
+    generic conversational scaffolding ("i need," "i want," "you can," "look at")
+    rather than genuinely characteristic phrasing, unlike Zeta above which gave a
+    meaningful result at the same corpus size. Injecting a list this generic into the
+    drafting prompt risks making output sound more repetitive, not more authentic -
+    revisit once the corpus is large enough that distinctive (not just frequent)
+    bigrams start to surface."""
+    counts: Counter = Counter()
+    for text, weight in corpus:
+        tokens = _tokenize(text)
+        for a, b in zip(tokens, tokens[1:]):
+            if a in _STOPWORDS and b in _STOPWORDS:
+                continue
+            counts[(a, b)] += weight
+    repeated = [(bigram, count) for bigram, count in counts.items() if count >= 2]
+    repeated.sort(key=lambda pair: pair[1], reverse=True)
+    return [f"{a} {b}" for (a, b), _ in repeated[:top_n]]

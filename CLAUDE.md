@@ -951,3 +951,46 @@ generation calls - acceptable per the explicit brief ("I don't care if generatio
 takes a while"), but worth knowing this cost will grow as the corpus does, and would
 be the first thing to optimise (e.g. caching each sample's embedding instead of
 recomputing it every single draft) if it ever becomes a problem worth solving.
+
+## Zeta words + characteristic bigrams - the last item on the roadmap (5 Sept 2026)
+
+Final piece of the stylometry roadmap (source-weighting, best-of-N, real embeddings,
+now this). Deliberately skipped the POS-tagging idea from the original list - it
+needs a new heavyweight dependency (spaCy) for a lower-impact refinement, flagged
+rather than added without asking.
+
+**Zeta** (`voice_engine/similarity.py::compute_zeta_words`) - Burrows'/Craig's Zeta,
+a different question from Delta's "how far off is the usual mix": which words show
+up in *most of your documents regardless of topic*, i.e. words you reliably reach
+for rather than words that just happen to be common. Uses document presence
+(weighted by authenticity), not raw counts. Probed against the real corpus before
+committing to the approach - genuinely informative even at only 6 samples: "have"
+appeared in 100% of documents, "just"/"really"/"proud"/"know" in the majority - a
+real signature list, unlike the bigram probe below. Wired into `build_profile.py`'s
+profile JSON and, more substantively, into the actual drafting prompt
+(`draft.py::_sample_characteristic_language` now takes `voice_profile` and appends a
+random sample of 8 real Zeta words alongside the hand-authored
+`CHARACTERISTIC_VOCABULARY` list) - verified the rendered prompt block directly
+before trusting it.
+
+**Characteristic bigrams** (`compute_characteristic_bigrams`) - two-word sequences
+that repeat across the corpus. Probed this one too before deciding how to use it,
+and the honest result was different: what actually repeats at 6 documents is mostly
+generic conversational scaffolding ("i need," "i want," "you can," "look at"), not
+distinctive phrasing. Shipped as Voice-page-only diagnostic (visibility, not
+generation input) rather than injected into the drafting prompt, since forcing a
+list this generic into output would make drafts more repetitive, not more authentic
+- the same "test before trusting the design" discipline as everywhere else in this
+roadmap, applied to conclude "not yet," not just "yes."
+
+**New "What the profile has picked up on" card** on the Voice page shows both lists
+as real chips, so James can see what the profile is actually keying off rather than
+trust it as a black box - Zeta words captioned as feeding drafting directly,
+bigrams captioned as visibility-only for now.
+
+Verified end to end: regenerated the real profile (confirmed both fields populated
+correctly), test-rendered the updated prompt block directly against the real
+profile (real Zeta words appeared correctly formatted), ran a full draft through
+the live pipeline with everything wired together (51.7s, real `voice_delta` 1.313,
+no errors), and confirmed the new Voice page card renders both word lists as chips
+via a real browser screenshot.
