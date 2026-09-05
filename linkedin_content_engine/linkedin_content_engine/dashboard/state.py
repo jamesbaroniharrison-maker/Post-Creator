@@ -186,9 +186,15 @@ def _week_label(dt: datetime) -> str:
 
 def _voice_delta_label(delta: float | None) -> str:
     """Human label for Burrows' Delta (voice_engine/similarity.py) - lower is closer
-    to the real corpus. Thresholds are provisional, calibrated against a small real
-    sample (real drafts scored ~0.8-1.0, a deliberately corporate/buzzword paragraph
-    scored ~1.8) - worth re-checking these bands once the corpus has grown."""
+    to the real corpus. Thresholds are explicitly provisional, not settled science:
+    calibrated against a tiny, heterogeneous real sample (2 short polished LinkedIn
+    posts + 4 long raw interview transcripts, weighted 2.5x for authenticity), and
+    confirmed live that the score is genuinely noisy at this sample size - a real
+    draft and a deliberately corporate paragraph scored within 0.01 of each other in
+    one test. This isn't a bug in the math, it's a real consequence of estimating
+    per-word variance from ~6 documents of very different shapes - it should get
+    meaningfully more stable as more samples (especially more Gemini Q&A answers,
+    the same register as the 4 that already carry the most weight) get added."""
     if delta is None:
         return ""
     if delta < 1.2:

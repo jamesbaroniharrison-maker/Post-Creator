@@ -856,3 +856,54 @@ Verified the same way as the original fix: mocked `_chat` to raise an
 correct result; mocked it to always raise - confirmed it correctly gives up after
 exhausting retries rather than looping forever. Restarted the live server afterward
 to confirm nothing else broke (compiled clean, 36/35 routes).
+
+## Source-weighted stylometry + best-of-N drafting (4-5 Sept 2026)
+
+Follow-up to the "what would the infrastructure cost" question - James chose to
+build the two zero-training-cost upgrades from that answer: weighting the corpus by
+authenticity, and spending more inference time instead of more engineering to get
+closer to his real voice. Confirmed directly: "Those [Gemini Q&A answers] are the
+most authentic versions of how I speak and is what I want to emulate," and "I don't
+care if generation takes a while. As long as it is what I want."
+
+**Source-weighted stylometry**: new `voice_engine/ingestion.py::get_weighted_samples()`
+pairs each sample with an authenticity weight (`SOURCE_AUTHENTICITY_WEIGHT = {"gemini_qa":
+2.5}`, everything else defaults to 1.0). Both `similarity.py` functions now take this
+weighted corpus: `burrows_delta` computes a proper *weighted* mean/variance per word
+(standard weighted-statistics formulas, not a plain average) so a weight-2.5 document
+pulls the "normal range" 2.5x as hard as a weight-1 one; `most_similar_texts`
+multiplies cosine similarity by weight before ranking, so a highly authentic sample
+can outrank a marginally more topically-similar but less authentic one.
+
+**Real, honest finding from testing this, not glossed over**: weighting toward the 4
+raw interview transcripts made Delta noticeably *noisier*, not cleaner - a genuine
+draft and a deliberately corporate paragraph scored within 0.01 of each other in one
+test (1.740 vs 1.734), where the unweighted version had cleanly separated them
+(0.84-1.04 vs 1.76). Debugged this for real rather than assuming a bug: dumped the
+actual selected vocab (legitimate function words - "i," "to," "the," "and," "was,"
+"you"...) and document lengths (the 2 LinkedIn posts are 86-98 tokens, the 4
+transcripts are 331-543). The real cause is sample-size/heterogeneity, not the
+weighting math: estimating a stable per-word variance from ~6 documents of very
+different shapes and lengths is inherently unstable, and weighting amplifies
+whichever few documents already dominate rather than fixing that. Shipped anyway,
+because the math itself is correct and the instability is a corpus-size problem that
+adding more Q&A samples (the explicit plan: "over time I'll add in samples") should
+directly improve - more documents of the same register gives the statistic something
+stable to estimate from. Documented as an explicit, unresolved caveat in
+`dashboard/state.py::_voice_delta_label` rather than quietly shipping numbers that
+looked more precise than they are.
+
+**Best-of-N drafting** (`drafting_engine/draft.py::best_of_n_draft_post`): drafts
+`DRAFT_BEST_OF_N` (env var, default 3) independent full candidates for the same
+topic/rotation - each already through its own audit-gate pass inside `draft_post` -
+and keeps whichever one scores the lowest Delta against the live corpus, returning
+`(winning_draft, its_delta)` so the caller doesn't recompute what it was already
+selected by. Candidates differ because `draft_post`'s own few-shot/discourse-opener
+sampling is randomised per call, not because this function varies the topic or
+rotation between attempts. Wired into `drafting_engine/pipeline.py` in place of the
+single `draft_post` call.
+
+Verified for real end to end: ran a real best-of-3 draft through the full pipeline -
+111.7 seconds for all 3 candidates plus audit gates, landed with a real
+`voice_delta` (1.209) on the winning candidate. Confirmed the whole app still
+compiles and boots clean afterward (36/35 routes) with both changes live together.

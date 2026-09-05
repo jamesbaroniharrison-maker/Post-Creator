@@ -27,8 +27,8 @@ from linkedin_content_engine.drafting_engine.persona import (
     PERSONA_EXEMPLARS,
     PROHIBITED_PATTERNS,
 )
-from linkedin_content_engine.voice_engine.ingestion import get_all_sample_texts
-from linkedin_content_engine.voice_engine.similarity import most_similar_texts
+from linkedin_content_engine.voice_engine.ingestion import get_weighted_samples
+from linkedin_content_engine.voice_engine.similarity import burrows_delta, most_similar_texts
 
 _ABOUT_ME_PATH = pathlib.Path(__file__).resolve().parent.parent / "context" / "about_me.md"
 
@@ -590,7 +590,7 @@ def draft_post(
     # shortlist of 4, not the single top match, keeps some of the same
     # anti-plagiarism randomness as the persona exemplars above rather than showing
     # the identical "most similar" example on every post about a similar topic.
-    _real_samples = get_all_sample_texts()
+    _real_samples = get_weighted_samples()
     _topic_shortlist = most_similar_texts(topic, _real_samples, n=min(4, len(_real_samples)))
     _few_shot_pool = [*PERSONA_EXEMPLARS, *(_topic_shortlist or voice_profile.get("few_shot_examples", []))]
     few_shot_examples = random.sample(_few_shot_pool, min(2, len(_few_shot_pool)))
@@ -667,3 +667,46 @@ def draft_post(
         )
 
     return draft
+
+
+# Request: "I don't care if generation takes a while. As long as it is what I want."
+# - the highest-leverage lever available without any training infrastructure: spend
+# more inference time, not more engineering, by drafting several independent
+# candidates for the same topic/rotation and automatically keeping whichever one
+# actually measures closest to the real corpus (voice_engine/similarity.py's
+# Burrows' Delta) instead of just taking whatever the model produced first.
+DRAFT_BEST_OF_N = int(os.environ.get("DRAFT_BEST_OF_N", 3))
+
+
+def best_of_n_draft_post(
+    topic: str,
+    voice_profile: dict,
+    research: ResearchResult,
+    rotation: dict,
+    n: int | None = None,
+) -> tuple[DraftOutput, float | None]:
+    """Draft `n` independent full candidates (each already through its own audit-gate
+    pass inside draft_post) and keep the one with the lowest Burrows' Delta against
+    the live corpus. Returns (winning_draft, its_delta) so the caller doesn't have to
+    recompute the score it was already selected by.
+
+    Candidates differ from each other because draft_post's own few-shot/discourse-
+    opener sampling is randomised per call, not because this function changes the
+    topic or rotation between attempts - it's the same assignment drafted several
+    times, not several different posts to choose between."""
+    n = n or DRAFT_BEST_OF_N
+    corpus = get_weighted_samples()
+
+    best_draft: DraftOutput | None = None
+    best_delta: float | None = None
+    for _ in range(max(1, n)):
+        candidate = draft_post(topic, voice_profile, research, rotation)
+        delta = burrows_delta(candidate.text, corpus)
+        is_better = (
+            best_draft is None
+            or (delta is not None and (best_delta is None or delta < best_delta))
+        )
+        if is_better:
+            best_draft, best_delta = candidate, delta
+
+    return best_draft, best_delta

@@ -12,12 +12,10 @@ import reflex as rx
 import sqlmodel
 
 from rxconfig import config
-from linkedin_content_engine.drafting_engine.draft import draft_post
+from linkedin_content_engine.drafting_engine.draft import best_of_n_draft_post
 from linkedin_content_engine.drafting_engine.research import ResearchResult, research_topic
 from linkedin_content_engine.drafting_engine.rotation import assign_rotation
 from linkedin_content_engine.models import Post, VoiceProfile
-from linkedin_content_engine.voice_engine.ingestion import get_all_sample_texts
-from linkedin_content_engine.voice_engine.similarity import burrows_delta
 
 
 def load_voice_profile() -> dict:
@@ -43,12 +41,12 @@ def generate_draft_with_research(
     """
     voice_profile = load_voice_profile()
     rotation = assign_rotation()
-    draft = draft_post(topic, voice_profile, research, rotation)
-
-    # Scored against the corpus as it stands right now, not at profile-build time -
-    # so this reflects whatever samples exist at the moment this specific post was
-    # drafted, not a stale snapshot from whenever the profile was last regenerated.
-    voice_delta = burrows_delta(draft.text, get_all_sample_texts())
+    # Drafts DRAFT_BEST_OF_N independent candidates (default 3) and keeps whichever
+    # one measures closest to the real corpus, rather than just the first attempt -
+    # request: "I don't care if generation takes a while. As long as it is what I
+    # want." voice_delta comes back already computed by the selection itself, not
+    # recalculated here against a possibly-different corpus snapshot.
+    draft, voice_delta = best_of_n_draft_post(topic, voice_profile, research, rotation)
 
     post = Post(
         post_type=post_type,

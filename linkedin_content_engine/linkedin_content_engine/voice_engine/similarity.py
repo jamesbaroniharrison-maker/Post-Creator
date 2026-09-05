@@ -7,14 +7,22 @@ in the honest, appropriate-for-this-project form: real, well-understood statisti
 techniques (cosine similarity over word-count vectors, Burrows' Delta - a genuine
 stylometry/authorship-attribution method) rather than pretending to run something
 that needs infrastructure this project doesn't have.
+
+Both functions take a *weighted* corpus (list of (text, weight) pairs, see
+voice_engine/ingestion.py::get_weighted_samples) - request: "Those [Gemini Q&A
+answers] are the most authentic versions of how I speak and is what I want to
+emulate," so a more authentic sample should count for more than a weight of 1 in
+both "how far is this draft from my real style" and "which real example best
+matches this topic," not just be one equal vote among many.
 """
 
 import math
 import re
-import statistics
 from collections import Counter
 
 _WORD_RE = re.compile(r"[a-zA-Z']+")
+
+WeightedCorpus = list[tuple[str, float]]
 
 
 def _tokenize(text: str) -> list[str]:
@@ -31,21 +39,25 @@ def _cosine(a: Counter, b: Counter) -> float:
     return dot / (norm_a * norm_b)
 
 
-def most_similar_texts(query: str, candidates: list[str], n: int = 2) -> list[str]:
-    """Rank `candidates` by bag-of-words cosine similarity to `query`, return the top
-    `n`. The honest version of "contrastive style retrieval" for a stack with no
-    embedding model: raw word overlap rather than a trained similarity space - fully
-    explainable, and reasonable for picking which of a handful of real samples best
-    match a topic's actual words."""
+def most_similar_texts(query: str, candidates: WeightedCorpus, n: int = 2) -> list[str]:
+    """Rank `candidates` by bag-of-words cosine similarity to `query`, scaled by each
+    candidate's authenticity weight, and return the top `n` texts. The honest version
+    of "contrastive style retrieval" for a stack with no embedding model: raw word
+    overlap rather than a trained similarity space - fully explainable, and reasonable
+    for picking which of a handful of real samples best match a topic's actual words.
+    The weight means a highly authentic sample can outrank a slightly-more-topically-
+    similar but less authentic one, not just break exact ties."""
     if not candidates:
         return []
     query_vec = Counter(_tokenize(query))
-    scored = [(c, _cosine(query_vec, Counter(_tokenize(c)))) for c in candidates]
+    scored = [
+        (text, _cosine(query_vec, Counter(_tokenize(text))) * weight) for text, weight in candidates
+    ]
     scored.sort(key=lambda pair: pair[1], reverse=True)
-    return [c for c, _ in scored[:n]]
+    return [text for text, _ in scored[:n]]
 
 
-def burrows_delta(candidate_text: str, corpus_texts: list[str], vocab_size: int = 30) -> float | None:
+def burrows_delta(candidate_text: str, corpus: WeightedCorpus, vocab_size: int = 30) -> float | None:
     """A real implementation of Burrows' Delta (Burrows, 2002) - a standard
     authorship-attribution statistic, not something invented for this project - scored
     here as "how far does this draft's function-word usage sit from the corpus's own
@@ -55,18 +67,34 @@ def burrows_delta(candidate_text: str, corpus_texts: list[str], vocab_size: int 
     are usually function words, since topic-bearing content words vary too much
     document to document to be a stable style signal).
 
+    The per-word mean/variance that everything else is measured against is a
+    weighted mean/variance across corpus documents (standard weighted-statistics
+    formulas), not a plain average - a document with authenticity weight 2.5 pulls
+    the "normal range" toward itself 2.5x as hard as a weight-1 document.
+
     Returns None when there isn't enough corpus data to compute a meaningful
     per-word mean/variance (need at least 2 real samples) - callers should treat that
     as "not enough corpus yet to score this," not "perfect match."
     """
-    if len(corpus_texts) < 2:
+    if len(corpus) < 2:
         return None
 
-    corpus_tokens = [_tokenize(t) for t in corpus_texts]
-    all_tokens = [tok for doc in corpus_tokens for tok in doc]
-    if not all_tokens:
+    texts = [t for t, _ in corpus]
+    weights = [w for _, w in corpus]
+    total_weight = sum(weights)
+    if total_weight <= 0:
         return None
-    vocab = [w for w, _ in Counter(all_tokens).most_common(vocab_size)]
+
+    corpus_tokens = [_tokenize(t) for t in texts]
+
+    # Vocab selection is also weight-aware - a word common in your most authentic
+    # samples should be more likely to end up in the "frequent words" set than one
+    # that's only common in a less authentic sample.
+    weighted_counts: Counter = Counter()
+    for tokens, weight in zip(corpus_tokens, weights):
+        for tok, count in Counter(tokens).items():
+            weighted_counts[tok] += count * weight
+    vocab = [w for w, _ in weighted_counts.most_common(vocab_size)]
     if not vocab:
         return None
 
@@ -76,8 +104,17 @@ def burrows_delta(candidate_text: str, corpus_texts: list[str], vocab_size: int 
         return {w: counts.get(w, 0) / total for w in vocab}
 
     doc_freqs = [_rel_freq(toks) for toks in corpus_tokens]
-    means = {w: statistics.mean(d[w] for d in doc_freqs) for w in vocab}
-    stdevs = {w: statistics.pstdev(d[w] for d in doc_freqs) for w in vocab}
+
+    means = {
+        w: sum(weight * freqs[w] for weight, freqs in zip(weights, doc_freqs)) / total_weight
+        for w in vocab
+    }
+    variances = {
+        w: sum(weight * (freqs[w] - means[w]) ** 2 for weight, freqs in zip(weights, doc_freqs))
+        / total_weight
+        for w in vocab
+    }
+    stdevs = {w: math.sqrt(variances[w]) for w in vocab}
 
     candidate_freqs = _rel_freq(_tokenize(candidate_text))
     z_diffs = [

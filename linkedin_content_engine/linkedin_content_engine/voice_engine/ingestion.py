@@ -11,6 +11,14 @@ from linkedin_content_engine.models import VoiceSample
 
 VALID_SOURCE_TYPES = ("linkedin_post", "audio_transcript", "gemini_qa")
 
+# Request: "Those [Gemini Q&A answers] are the most authentic versions of how I speak
+# and is what I want to emulate." Raw interview answers are unscripted and unedited;
+# LinkedIn posts (even the personal ones) go through some amount of polish before
+# posting - so they carry real signal but shouldn't count equally. Anything not listed
+# here (currently just linkedin_post/audio_transcript) falls back to weight 1.0.
+SOURCE_AUTHENTICITY_WEIGHT: dict[str, float] = {"gemini_qa": 2.5}
+_DEFAULT_WEIGHT = 1.0
+
 
 def add_sample(raw_text: str, source_type: str, question: str | None = None) -> VoiceSample:
     """Store one corpus sample (a LinkedIn post, a transcribed recording, or one
@@ -87,6 +95,16 @@ def get_all_samples() -> list[VoiceSample]:
 def get_all_sample_texts() -> list[str]:
     """Return just the raw text of every corpus sample, for stats/LLM steps."""
     return [s.raw_text for s in get_all_samples()]
+
+
+def get_weighted_samples() -> list[tuple[str, float]]:
+    """Same as get_all_sample_texts, but paired with each sample's authenticity
+    weight (SOURCE_AUTHENTICITY_WEIGHT) - for the stylometry/retrieval math that
+    should count your raw Gemini answers more heavily than more polished posts."""
+    return [
+        (s.raw_text, SOURCE_AUTHENTICITY_WEIGHT.get(s.source_type, _DEFAULT_WEIGHT))
+        for s in get_all_samples()
+    ]
 
 
 def clear_all_samples() -> int:
