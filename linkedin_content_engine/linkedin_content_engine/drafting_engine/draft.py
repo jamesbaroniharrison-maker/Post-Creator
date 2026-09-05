@@ -27,6 +27,7 @@ from linkedin_content_engine.drafting_engine.persona import (
     PERSONA_EXEMPLARS,
     PROHIBITED_PATTERNS,
 )
+from linkedin_content_engine.voice_engine.embeddings import most_similar_by_embedding
 from linkedin_content_engine.voice_engine.ingestion import get_weighted_samples
 from linkedin_content_engine.voice_engine.similarity import burrows_delta, most_similar_texts
 
@@ -583,15 +584,22 @@ def draft_post(
     # rotating sample gives it less of a single complete example to copy wholesale.
     #
     # Real-corpus examples are picked by topic similarity, not the profile's fixed
-    # length-based set - the honest, no-embedding-model version of "retrieve the
-    # example closest to this post's actual angle": bag-of-words cosine similarity
-    # against the live corpus (voice_engine/similarity.py), read fresh here rather
-    # than from whatever was cached in the profile at its last regeneration. A
+    # length-based set - "retrieve the example closest to this post's actual angle."
+    # Tries real local embeddings first (voice_engine/embeddings.py, Ollama's
+    # nomic-embed-text) - confirmed live this actually works: for an AI-topic query
+    # it correctly ranked the two genuinely AI-related samples on top, where the
+    # bag-of-words fallback (voice_engine/similarity.py, no lexical overlap with
+    # "AI"/"model") missed them entirely. Falls back to bag-of-words only if the
+    # embedding model isn't reachable (Ollama down, model not pulled) - drafting
+    # should never hard-fail just because a local embedding call didn't answer. A
     # shortlist of 4, not the single top match, keeps some of the same
     # anti-plagiarism randomness as the persona exemplars above rather than showing
     # the identical "most similar" example on every post about a similar topic.
     _real_samples = get_weighted_samples()
-    _topic_shortlist = most_similar_texts(topic, _real_samples, n=min(4, len(_real_samples)))
+    _shortlist_n = min(4, len(_real_samples))
+    _topic_shortlist = most_similar_by_embedding(topic, _real_samples, n=_shortlist_n)
+    if _topic_shortlist is None:
+        _topic_shortlist = most_similar_texts(topic, _real_samples, n=_shortlist_n)
     _few_shot_pool = [*PERSONA_EXEMPLARS, *(_topic_shortlist or voice_profile.get("few_shot_examples", []))]
     few_shot_examples = random.sample(_few_shot_pool, min(2, len(_few_shot_pool)))
 

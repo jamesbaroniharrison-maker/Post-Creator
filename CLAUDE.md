@@ -907,3 +907,47 @@ Verified for real end to end: ran a real best-of-3 draft through the full pipeli
 111.7 seconds for all 3 candidates plus audit gates, landed with a real
 `voice_delta` (1.209) on the winning candidate. Confirmed the whole app still
 compiles and boots clean afterward (36/35 routes) with both changes live together.
+
+## Real local embeddings for few-shot retrieval (5 Sept 2026)
+
+Continuing the same roadmap - the next item after source-weighting and best-of-N.
+Pulled `nomic-embed-text` into Ollama (274MB, one-time, fully local and free -
+`capabilities: ["embedding"]`, confirmed via `/api/tags`) and built
+`voice_engine/embeddings.py` to call its real `/api/embeddings` endpoint - the
+literal version of "contrastive style embedding retrieval" now that a genuine local
+embedding model exists, replacing the bag-of-words approximation as the primary
+method (which stays as a fallback if the embedding call fails for any reason -
+Ollama down, model not pulled - rather than ever hard-failing a draft over it).
+
+**Real bug found and fixed while building this, not shipped blind**: the first
+version multiplied embedding cosine similarity by the same 2.5x authenticity weight
+used for Delta. Tested against a real query about an AI model release before
+trusting it - the *raw* embedding correctly ranked the two genuinely AI-related
+samples on top (0.59, 0.48 cosine, both legitimately about AI). Applying the weight
+multiplier pushed an unrelated breakup story above both of them instead, because raw
+cosine scores across unrelated topics cluster narrowly enough (roughly 0.29-0.62)
+that a flat 2.5x multiplier can override real topical relevance outright, not just
+break close ties. Removed the weight multiplier from the embedding path entirely -
+authenticity weighting stays correct for Delta (modelling "which documents anchor
+your normal voice"), but for "which single example is actually about this topic,"
+topical relevance should win on its own. Re-tested after the fix across three
+different queries (a reset/comeback story, an AI/market topic, a friendship
+question) - each one now retrieves a genuinely on-topic real sample, including the
+AI query, which the bag-of-words fallback had missed entirely (no lexical overlap
+with "AI"/"model").
+
+Verified the fallback contract too (mocked `embed()` to fail - confirmed
+`most_similar_by_embedding` returns `None`, distinct from an empty list, so
+`draft.py` correctly falls back to bag-of-words rather than silently drafting from
+nothing), then ran one real draft end to end with the new retrieval live -
+landed cleanly in 92.6s, real `voice_delta` 1.077. Compiled and booted the whole app
+clean afterward.
+
+**Honest cost note**: embedding retrieval adds real wall-clock time - roughly
+20-50s per draft candidate for a shortlist against a 6-sample corpus, scaling with
+corpus size since it embeds every candidate document, not just the query. Multiplied
+by `DRAFT_BEST_OF_N` (3 by default), that's real added latency on top of the actual
+generation calls - acceptable per the explicit brief ("I don't care if generation
+takes a while"), but worth knowing this cost will grow as the corpus does, and would
+be the first thing to optimise (e.g. caching each sample's embedding instead of
+recomputing it every single draft) if it ever becomes a problem worth solving.
