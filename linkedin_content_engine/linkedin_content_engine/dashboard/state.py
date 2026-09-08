@@ -311,6 +311,9 @@ class DashboardState(rx.State):
     # actually picking up on, not just trust it blindly.
     voice_zeta_words: list[str] = []
     voice_characteristic_bigrams: list[str] = []
+    # Real POS-ratio/passive-voice stats (voice_engine/syntax_profile.py, spaCy) -
+    # diagnostic display only, not yet a drafting-prompt directive.
+    voice_syntax_summary: str = ""
 
     # Gemini Q&A samples (request: "I'm having conversations with Gemini... it's
     # asking me a question, and I'm putting a text answer" - the answers are real,
@@ -1406,6 +1409,7 @@ class DashboardState(rx.State):
             self.voice_profile_status = "no profile generated yet"
             self.voice_zeta_words = []
             self.voice_characteristic_bigrams = []
+            self.voice_syntax_summary = ""
         else:
             self.voice_profile_status = (
                 f"generated {profile.generated_at.strftime('%d %b %Y')} from "
@@ -1414,6 +1418,15 @@ class DashboardState(rx.State):
             profile_data = json.loads(profile.profile_json)
             self.voice_zeta_words = profile_data.get("zeta_words", [])
             self.voice_characteristic_bigrams = profile_data.get("characteristic_bigrams", [])
+            syntax = profile_data.get("syntax", {})
+            if syntax.get("status") == "ok":
+                self.voice_syntax_summary = (
+                    f"~{syntax['avg_nouns_per_post']:.0f} nouns, {syntax['avg_verbs_per_post']:.0f} verbs, "
+                    f"{syntax['avg_adjectives_per_post']:.0f} adjectives per post on average - "
+                    f"{syntax['pct_passive_sentences']:.0f}% of sentences are passive voice."
+                )
+            else:
+                self.voice_syntax_summary = ""
 
     @rx.event
     def set_voice_new_sample_text(self, value: str):

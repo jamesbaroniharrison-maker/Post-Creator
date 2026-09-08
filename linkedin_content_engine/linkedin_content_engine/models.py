@@ -77,6 +77,10 @@ class VoiceSample(rx.Model, table=True):
     raw_text: str
     date_added: datetime
     question: str | None = None
+    # JSON-encoded embedding vector (voice_engine/embeddings.py), computed once and
+    # cached here rather than recomputed on every single draft - matters once the
+    # corpus is large, since retrieval used to re-embed every sample on every call.
+    embedding: str | None = None
 
 
 class VoiceProfile(rx.Model, table=True):

@@ -13,6 +13,7 @@ from linkedin_content_engine.voice_engine.ingestion import get_all_sample_texts,
 from linkedin_content_engine.voice_engine.keyness import compute_keyness
 from linkedin_content_engine.voice_engine.similarity import compute_characteristic_bigrams, compute_zeta_words
 from linkedin_content_engine.voice_engine.structural import compute_structural_stats
+from linkedin_content_engine.voice_engine.syntax_profile import compute_syntax_stats
 
 # Picking the shortest posts would mostly surface one-line reactions ("Very proud of
 # this girl!") which don't show the drafting engine what a full post looks like. Posts
@@ -39,13 +40,19 @@ def build_profile() -> dict:
         "structural": compute_structural_stats(texts),
         "llm_close_read": llm_close_read(texts),
         "few_shot_examples": _pick_few_shot_examples(texts),
-        # Zeta (voice_engine/similarity.py) - words present in most of your documents
-        # regardless of topic, fed into the drafting prompt alongside the hand-authored
-        # persona vocabulary. Bigrams are diagnostic only (Voice page display) - real
-        # signal but not yet distinctive enough at this corpus size to safely inject
-        # into generation (see similarity.py's docstring for why).
+        # Zeta and characteristic bigrams (voice_engine/similarity.py) - real,
+        # corpus-derived vocabulary and phrasing, both fed into the drafting prompt
+        # alongside the hand-authored persona vocabulary. Bigrams are PMI-ranked
+        # against general English (like keyness.py's single-word version), not raw
+        # frequency - that's what makes them distinctive enough to safely inject into
+        # generation rather than just being generic scaffolding.
         "zeta_words": compute_zeta_words(weighted),
         "characteristic_bigrams": compute_characteristic_bigrams(weighted),
+        # Real POS-ratio/passive-voice stats (voice_engine/syntax_profile.py, spaCy) -
+        # diagnostic only for now (Voice page display), same "test before forcing it
+        # into generation" treatment bigrams got before PMI-ranking proved out - not
+        # yet translated into a drafting-prompt directive.
+        "syntax": compute_syntax_stats(texts),
     }
     return profile
 

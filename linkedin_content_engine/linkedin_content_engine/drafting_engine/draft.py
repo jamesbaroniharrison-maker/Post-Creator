@@ -28,8 +28,8 @@ from linkedin_content_engine.drafting_engine.persona import (
     PROHIBITED_PATTERNS,
 )
 from linkedin_content_engine.voice_engine.embeddings import most_similar_by_embedding
-from linkedin_content_engine.voice_engine.ingestion import get_weighted_samples
-from linkedin_content_engine.voice_engine.similarity import burrows_delta, most_similar_texts
+from linkedin_content_engine.voice_engine.ingestion import get_embedded_samples, get_weighted_samples_by_register
+from linkedin_content_engine.voice_engine.similarity import most_similar_texts, primary_voice_delta
 
 _ABOUT_ME_PATH = pathlib.Path(__file__).resolve().parent.parent / "context" / "about_me.md"
 
@@ -541,8 +541,12 @@ def _sample_characteristic_language(voice_profile: dict) -> str:
     Also appends a sample of Zeta words (voice_engine/similarity.py::compute_zeta_
     words) - real words pulled from the actual corpus that show up across most of
     what you've written, regardless of topic, rather than the hand-authored
-    CHARACTERISTIC_VOCABULARY list above it. Sampled, not dumped in full, for the
-    same anti-overfit reason as everything else here."""
+    CHARACTERISTIC_VOCABULARY list above it - and, now that PMI-based ranking
+    replaced raw-frequency ranking and produces genuinely distinctive results
+    (confirmed live: "useless busywork," "restarting fresh," "agree blindly" - real
+    phrasing, not generic scaffolding like the old version), a sample of
+    characteristic bigrams too. Sampled, not dumped in full, for the same anti-overfit
+    reason as everything else here."""
     openers = random.sample(DISCOURSE_OPENERS, min(3, len(DISCOURSE_OPENERS)))
     bridges = random.sample(CONVERSATIONAL_BRIDGES, min(3, len(CONVERSATIONAL_BRIDGES)))
     openers_str = ", ".join(f'"{o}"' for o in openers)
@@ -558,6 +562,16 @@ def _sample_characteristic_language(voice_profile: dict) -> str:
             "force them in: " + ", ".join(sample_zeta)
         )
 
+    bigrams = voice_profile.get("characteristic_bigrams", [])
+    bigram_block = ""
+    if bigrams:
+        sample_bigrams = random.sample(bigrams, min(5, len(bigrams)))
+        bigram_block = (
+            "\n\nReal two-word phrases pulled from your own writing - only use one if it "
+            "actually fits naturally, most posts shouldn't force any of these in: "
+            + ", ".join(f'"{b}"' for b in sample_bigrams)
+        )
+
     return (
         f"Thought starters / discourse openers you might use: {openers_str}\n\n"
         f"Conversational bridges: {bridges_str}\n\n"
@@ -565,6 +579,7 @@ def _sample_characteristic_language(voice_profile: dict) -> str:
         "shouldn't use any of them at all, and none of them should show up in back-to-back posts.\n\n"
         f"{CHARACTERISTIC_VOCABULARY}"
         f"{zeta_block}"
+        f"{bigram_block}"
     )
 
 
@@ -613,9 +628,10 @@ def draft_post(
     # shortlist of 4, not the single top match, keeps some of the same
     # anti-plagiarism randomness as the persona exemplars above rather than showing
     # the identical "most similar" example on every post about a similar topic.
-    _real_samples = get_weighted_samples()
+    _embedded_samples = get_embedded_samples()
+    _real_samples = [(text, weight) for text, weight, _vec in _embedded_samples]
     _shortlist_n = min(4, len(_real_samples))
-    _topic_shortlist = most_similar_by_embedding(topic, _real_samples, n=_shortlist_n)
+    _topic_shortlist = most_similar_by_embedding(topic, _embedded_samples, n=_shortlist_n)
     if _topic_shortlist is None:
         _topic_shortlist = most_similar_texts(topic, _real_samples, n=_shortlist_n)
     _few_shot_pool = [*PERSONA_EXEMPLARS, *(_topic_shortlist or voice_profile.get("few_shot_examples", []))]
@@ -713,21 +729,24 @@ def best_of_n_draft_post(
 ) -> tuple[DraftOutput, float | None]:
     """Draft `n` independent full candidates (each already through its own audit-gate
     pass inside draft_post) and keep the one with the lowest Burrows' Delta against
-    the live corpus. Returns (winning_draft, its_delta) so the caller doesn't have to
-    recompute the score it was already selected by.
+    the live corpus - scored register-aware (voice_engine/similarity.py::primary_
+    voice_delta): against the linkedin_post register specifically once there are
+    enough LinkedIn posts to support that, falling back to the old pooled-corpus
+    score until then. Returns (winning_draft, its_delta) so the caller doesn't have
+    to recompute the score it was already selected by.
 
     Candidates differ from each other because draft_post's own few-shot/discourse-
     opener sampling is randomised per call, not because this function changes the
     topic or rotation between attempts - it's the same assignment drafted several
     times, not several different posts to choose between."""
     n = n or DRAFT_BEST_OF_N
-    corpus = get_weighted_samples()
+    corpus = get_weighted_samples_by_register()
 
     best_draft: DraftOutput | None = None
     best_delta: float | None = None
     for _ in range(max(1, n)):
         candidate = draft_post(topic, voice_profile, research, rotation)
-        delta = burrows_delta(candidate.text, corpus)
+        delta = primary_voice_delta(candidate.text, corpus)
         is_better = (
             best_draft is None
             or (delta is not None and (best_delta is None or delta < best_delta))

@@ -17,12 +17,20 @@ matches this topic," not just be one equal vote among many.
 """
 
 import math
+import random
 import re
 from collections import Counter
 
+from wordfreq import word_frequency
+
 from linkedin_content_engine.voice_engine.keyness import _STOPWORDS
 
-_WORD_RE = re.compile(r"[a-zA-Z']+")
+# Requires at least one real letter, not just apostrophes - a bare "'" was showing up
+# as its own token (and then its own "bigram") from quote-delimited phrases like
+# "...a long-distance runner,'" where the tokenizer split on the comma and the
+# trailing apostrophe had no adjacent letters left to attach to. Found live while
+# testing PMI bigram ranking below - "runner '" was ranking as a top result.
+_WORD_RE = re.compile(r"[a-zA-Z]+(?:'[a-zA-Z]+)*")
 
 WeightedCorpus = list[tuple[str, float]]
 
@@ -127,6 +135,104 @@ def burrows_delta(candidate_text: str, corpus: WeightedCorpus, vocab_size: int =
     return round(sum(z_diffs) / len(z_diffs), 3)
 
 
+RegisterCorpus = list[tuple[str, float, str]]
+
+# What a generated post's register actually is - used to pick which register's
+# baseline is the primary score. Not every source_type in VALID_SOURCE_TYPES is
+# necessarily a target register (audio_transcript could go either way depending on
+# what was said), but this is the one we know for certain: a LinkedIn post should be
+# judged primarily against other LinkedIn posts, not against raw spoken interview
+# answers, even though the interview answers are weighted more heavily for *what
+# vocabulary/values* to draw on via retrieval and Zeta.
+TARGET_REGISTER = "linkedin_post"
+
+
+def burrows_delta_by_register(candidate_text: str, corpus: RegisterCorpus, vocab_size: int = 30) -> dict[str, float | None]:
+    """Splits the corpus by source_type/register and scores the candidate against
+    each register's own baseline separately, instead of one pooled baseline across
+    every register at once. Confirmed live why this matters: pooling a handful of
+    short, formatted LinkedIn posts with several long, raw spoken transcripts made
+    Delta noisy - a real draft and a deliberately corporate paragraph scored within
+    0.01 of each other, because the pooled "normal range" was really an unstable mix
+    of two different registers' statistics, not a coherent single baseline.
+
+    Each register's score only exists once that register itself has enough documents
+    (burrows_delta's own len<2 guard) - with only 2 LinkedIn posts today, the
+    "linkedin_post" register can't yet produce a stable score on its own, so this
+    degrades safely to `None` for that key until there are at least 2, same as the
+    pooled version already does for the whole corpus. Nothing here breaks at small
+    scale; it just isn't fully active yet."""
+    by_register: dict[str, WeightedCorpus] = {}
+    for text, weight, source_type in corpus:
+        by_register.setdefault(source_type, []).append((text, weight))
+    return {register: burrows_delta(candidate_text, docs, vocab_size) for register, docs in by_register.items()}
+
+
+def primary_voice_delta(candidate_text: str, corpus: RegisterCorpus, vocab_size: int = 30) -> float | None:
+    """The single score best_of_n_draft_post actually selects on: the TARGET_REGISTER
+    (linkedin_post) score if that register has enough of its own samples to produce
+    one, otherwise the old pooled-corpus score across every register as a fallback -
+    so this is always at least as good as the pre-register-split behaviour, never
+    worse, and automatically switches to the more precise per-register score the
+    moment enough LinkedIn posts exist to support it."""
+    by_register = burrows_delta_by_register(candidate_text, corpus, vocab_size)
+    target_score = by_register.get(TARGET_REGISTER)
+    if target_score is not None:
+        return target_score
+    pooled = [(text, weight) for text, weight, _source_type in corpus]
+    return burrows_delta(candidate_text, pooled, vocab_size)
+
+
+def validate_voice_metric(
+    corpus: RegisterCorpus, holdout_fraction: float = 0.15, min_baseline: int = 6
+) -> dict:
+    """A real train/validation check on Delta itself, not something that changes how
+    a live draft gets scored - holds back a slice of real samples per register, builds
+    that register's baseline from everything else, then scores the held-out samples
+    (genuine examples of your writing the baseline never saw) against it. If the
+    metric is doing its job, held-out real writing should reliably come back "close" -
+    if it doesn't, that's a sign the metric or its thresholds need revisiting, not
+    just a data problem.
+
+    Deliberately NOT wired into best_of_n_draft_post's live scoring - holding samples
+    back to validate the metric would mean building an already-fragile-at-small-scale
+    baseline from even fewer documents, which would make live scoring worse, not
+    better, until the corpus is large enough to spare the holdout without hurting the
+    baseline. Only activates per register once that register has at least
+    `min_baseline` documents left over after holding out `holdout_fraction` of it -
+    below that, reports "not enough data" for that register rather than forcing a
+    split that would starve the baseline. Call this on demand to check calibration,
+    not on every draft."""
+    by_register: dict[str, WeightedCorpus] = {}
+    for text, weight, source_type in corpus:
+        by_register.setdefault(source_type, []).append((text, weight))
+
+    results: dict[str, dict] = {}
+    for register, docs in by_register.items():
+        n_holdout = int(len(docs) * holdout_fraction)
+        if n_holdout < 1 or len(docs) - n_holdout < min_baseline:
+            results[register] = {
+                "status": "not enough data",
+                "total_documents": len(docs),
+                "needed": min_baseline + max(1, int(min_baseline * holdout_fraction)),
+            }
+            continue
+
+        shuffled = docs[:]
+        random.shuffle(shuffled)
+        held_out, baseline = shuffled[:n_holdout], shuffled[n_holdout:]
+        deltas = [burrows_delta(text, baseline) for text, _weight in held_out]
+        valid_deltas = [d for d in deltas if d is not None]
+        results[register] = {
+            "status": "ok",
+            "baseline_size": len(baseline),
+            "held_out_size": len(held_out),
+            "held_out_deltas": valid_deltas,
+            "mean_held_out_delta": round(sum(valid_deltas) / len(valid_deltas), 3) if valid_deltas else None,
+        }
+    return results
+
+
 def compute_zeta_words(corpus: WeightedCorpus, min_doc_frequency: float = 0.5, top_n: int = 20) -> list[str]:
     """Burrows'/Craig's Zeta - a different question from Delta's "how far off is the
     usual mix of words": which words show up in most of your documents *regardless
@@ -161,17 +267,23 @@ def compute_zeta_words(corpus: WeightedCorpus, min_doc_frequency: float = 0.5, t
     return [w for w, _ in signature[:top_n]]
 
 
-def compute_characteristic_bigrams(corpus: WeightedCorpus, top_n: int = 15) -> list[str]:
-    """Diagnostic only for now - Voice page display, NOT fed into the drafting
-    prompt. Two-word sequences that repeat across the corpus, weighted by
-    authenticity. Confirmed live this is real signal but not yet distinctive signal
-    at a corpus this size: what actually repeats across only 6 documents is mostly
-    generic conversational scaffolding ("i need," "i want," "you can," "look at")
-    rather than genuinely characteristic phrasing, unlike Zeta above which gave a
-    meaningful result at the same corpus size. Injecting a list this generic into the
-    drafting prompt risks making output sound more repetitive, not more authentic -
-    revisit once the corpus is large enough that distinctive (not just frequent)
-    bigrams start to surface."""
+def compute_characteristic_bigrams(corpus: WeightedCorpus, top_n: int = 15, min_count: float = 2.0) -> list[str]:
+    """Ranks repeated two-word sequences by Pointwise Mutual Information (PMI)
+    against general English, not raw frequency - the same idea as keyness.py's
+    single-word comparison against `wordfreq`, extended to bigrams. `wordfreq` has no
+    bigram frequencies to compare against directly, so this uses the standard
+    collocation-detection approach instead: PMI(w1,w2) = log2(P(w1,w2) /
+    (P(w1)*P(w2))) - how much more often this exact pair occurs together in your
+    corpus than you'd expect from each word's general-English frequency alone, if
+    they were unrelated. A high PMI bigram is one that's a real pairing, not just two
+    common words that happen to sit next to each other sometimes.
+
+    Confirmed live why this matters: raw-frequency ranking on this same corpus
+    surfaced mostly generic scaffolding ("i need," "i want," "you can," "look at") -
+    each individually common, so also common as a pair by pure chance, but not
+    actually a distinctive collocation. PMI is exactly the fix for that failure mode.
+    Still requires `min_count` weighted occurrences (default 2) to avoid a single
+    coincidental pairing looking artificially distinctive at low sample size."""
     counts: Counter = Counter()
     for text, weight in corpus:
         tokens = _tokenize(text)
@@ -179,6 +291,18 @@ def compute_characteristic_bigrams(corpus: WeightedCorpus, top_n: int = 15) -> l
             if a in _STOPWORDS and b in _STOPWORDS:
                 continue
             counts[(a, b)] += weight
-    repeated = [(bigram, count) for bigram, count in counts.items() if count >= 2]
-    repeated.sort(key=lambda pair: pair[1], reverse=True)
-    return [f"{a} {b}" for (a, b), _ in repeated[:top_n]]
+    total = sum(counts.values())
+    if total <= 0:
+        return []
+
+    scored = []
+    for (a, b), count in counts.items():
+        if count < min_count:
+            continue
+        p_ab = count / total
+        p_a = word_frequency(a, "en") or 1e-9
+        p_b = word_frequency(b, "en") or 1e-9
+        pmi = math.log2(p_ab / (p_a * p_b))
+        scored.append(((a, b), pmi))
+    scored.sort(key=lambda pair: pair[1], reverse=True)
+    return [f"{a} {b}" for (a, b), _ in scored[:top_n]]

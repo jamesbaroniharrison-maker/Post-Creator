@@ -48,33 +48,37 @@ def cosine(a: list[float], b: list[float]) -> float:
 
 
 def most_similar_by_embedding(
-    query: str, candidates: list[tuple[str, float]], n: int = 2
+    query: str, candidates: list[tuple[str, float, list[float] | None]], n: int = 2
 ) -> list[str] | None:
     """Real-embedding version of similarity.py's most_similar_texts - ranks by cosine
-    similarity in actual embedding space instead of word-count overlap. Takes the same
-    weighted-corpus shape as the bag-of-words version but deliberately does NOT
-    multiply similarity by authenticity weight - confirmed live that it should not:
-    for a query about an AI model release, the raw embedding correctly ranked the two
-    genuinely AI-related posts on top (0.59, 0.48 cosine) - multiplying by the 2.5x
-    Gemini-answer weight pushed an unrelated breakup story above both of them instead,
-    because real cosine scores here cluster narrowly enough (roughly 0.29-0.62 across
-    unrelated topics) for a flat multiplier to override genuine topical relevance
-    entirely. The authenticity weighting still matters for Burrows' Delta (there it's
-    correctly modelling "which documents anchor your normal voice more"), but for
-    "which single real example is actually about this topic," topical relevance
-    should win outright, not get bid up by source type. Returns None (distinct from
-    an empty list) if embedding failed at any point, so the caller knows to fall back
-    rather than silently act on a partially-ranked result."""
+    similarity in actual embedding space instead of word-count overlap. Deliberately
+    does NOT multiply similarity by authenticity weight - confirmed live that it
+    should not: for a query about an AI model release, the raw embedding correctly
+    ranked the two genuinely AI-related posts on top (0.59, 0.48 cosine) -
+    multiplying by the 2.5x Gemini-answer weight pushed an unrelated breakup story
+    above both of them instead, because real cosine scores here cluster narrowly
+    enough (roughly 0.29-0.62 across unrelated topics) for a flat multiplier to
+    override genuine topical relevance entirely. The authenticity weighting still
+    matters for Burrows' Delta, but for "which single real example is actually about
+    this topic," topical relevance should win outright, not get bid up by source type.
+
+    Takes `(text, weight, embedding)` triples (voice_engine/ingestion.py::
+    get_embedded_samples) - embeddings are precomputed/cached, so this only ever
+    calls `embed()` once, for the query, not once per candidate on every draft.
+    Skips any candidate whose embedding is still missing (e.g. the model was
+    unreachable when it was cached) rather than aborting the whole ranking over one
+    bad entry - only returns None (distinct from an empty list, meaning "fall back
+    to bag-of-words entirely") when the query itself can't be embedded, or nothing
+    usable is left to rank against."""
     if not candidates:
         return []
     query_vec = embed(query)
     if query_vec is None:
         return None
-    scored = []
-    for text, _weight in candidates:
-        vec = embed(text)
-        if vec is None:
-            return None
-        scored.append((text, cosine(query_vec, vec)))
+    scored = [
+        (text, cosine(query_vec, vec)) for text, _weight, vec in candidates if vec is not None
+    ]
+    if not scored:
+        return None
     scored.sort(key=lambda pair: pair[1], reverse=True)
     return [text for text, _ in scored[:n]]

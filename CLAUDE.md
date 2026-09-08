@@ -994,3 +994,67 @@ profile (real Zeta words appeared correctly formatted), ran a full draft through
 the live pipeline with everything wired together (51.7s, real `voice_delta` 1.313,
 no errors), and confirmed the new Voice page card renders both word lists as chips
 via a real browser screenshot.
+
+## Second stylometry tier: caching, register-aware scoring, PMI bigrams, validation, syntax (8 Sept 2026)
+
+James asked "what improvements can be made... create the best corpus machine," was
+given 5 real next-tier ideas explicitly scoped by data readiness, and said "fix all
+in order." Built all 5, each verified for real, not assumed:
+
+**1. Embedding caching** (`VoiceSample.embedding`, migration `078627c881c3`) - a
+sample's embedding is computed once and cached on the row, not recomputed on every
+draft. New `ingestion.py::get_embedded_samples()`; `embeddings.py::most_similar_by_
+embedding` now takes precomputed `(text, weight, embedding)` triples and only ever
+calls `embed()` once per draft (for the topic query), not once per candidate.
+Verified live: cold call 20.1s (computes+caches all 6), warm call 0.0s.
+
+**2. Register-aware Delta** (`similarity.py::burrows_delta_by_register`/`primary_
+voice_delta`) - splits the corpus by source_type and scores a draft against its own
+register's baseline (linkedin_post specifically, since that's what's being
+generated) instead of one pooled baseline mixing raw speech and polished posts -
+the exact instability found and documented earlier. Degrades safely to the old
+pooled score when a register doesn't have `burrows_delta`'s own minimum of 2
+documents yet. Wired into `best_of_n_draft_post` in place of the plain pooled call.
+
+**3. PMI-ranked bigrams** (`compute_characteristic_bigrams` rewritten) - replaced
+raw-frequency ranking with Pointwise Mutual Information against `wordfreq`'s
+general-English baseline (same idea as keyness.py's single-word comparison,
+extended to pairs, since `wordfreq` has no bigram data to compare against
+directly). Real quality jump confirmed live: raw frequency surfaced generic
+scaffolding ("i need," "i want," "you can"); PMI surfaces actual distinctive
+phrasing ("useless busywork," "restarting fresh," "agree blindly," "torrential
+rain"). Quality bar cleared, so bigrams graduated from Voice-page-diagnostic-only
+to feeding the drafting prompt directly, same treatment Zeta words already got.
+
+**Real bug caught while testing #3**: a handful of top "bigrams" were nonsense like
+`"runner '"` - a bare apostrophe from quote-delimited text (`"...a long-distance
+runner,'"`) getting tokenized as its own word once the tokenizer split on the comma
+next to it. Fixed `_WORD_RE` to require at least one real letter, not just
+apostrophes. Confirmed the fix cleared the noise and didn't regress Zeta or Delta.
+
+**4. Validation-split diagnostic** (`similarity.py::validate_voice_metric`) - holds
+back a slice of real samples per register, builds that register's baseline from
+everything else, and scores the held-out samples against it - if Delta is working,
+genuine held-out writing should score "close." Deliberately NOT wired into live
+best-of-N scoring (holding samples back would starve an already-small baseline,
+making live scoring worse at this corpus size, not better) - it's a calibration
+check to run on demand, not something that changes how drafts get scored today.
+Verified both branches: correctly reports "not enough data" on the real 6-sample
+corpus (needs 7 per register), and correctly activates and produces a sensible
+result (0.864, "close") against a synthetic 10-document test corpus built
+specifically to exercise the "ok" path.
+
+**5. Syntactic profile via spaCy** (`voice_engine/syntax_profile.py`) - the one item
+that needed a new dependency, only added now that it was explicitly authorized.
+Installed `spacy==3.8.16` + `en_core_web_sm` (added to requirements.txt). Real
+POS-ratio and passive-voice stats via an actual dependency parse - something regex
+genuinely can't do. Confirmed live: 6.2% passive-voice sentences, consistent with
+the already-observed "direct, active" tone. Diagnostic only for now (Voice page
+display) - same "prove it's good before forcing it into generation" treatment
+bigrams got before PMI ranking justified promoting them.
+
+Verified end to end after all 5 were wired together: full profile regeneration
+populated every new field correctly, a real draft ran through the complete pipeline
+with no errors (real register-aware `voice_delta` computed), and the Voice page's
+"What the profile has picked up on" card renders the new syntax summary line
+alongside the existing word/bigram chips, confirmed via a real browser screenshot.

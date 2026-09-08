@@ -1,5 +1,6 @@
 """Corpus ingestion: writes raw voice samples to the voice_samples table (spec Â§3c, Â§9)."""
 
+import json
 import re
 from datetime import datetime, timezone
 
@@ -8,6 +9,7 @@ import sqlmodel
 
 from rxconfig import config
 from linkedin_content_engine.models import VoiceSample
+from linkedin_content_engine.voice_engine.embeddings import embed
 
 VALID_SOURCE_TYPES = ("linkedin_post", "audio_transcript", "gemini_qa")
 
@@ -105,6 +107,50 @@ def get_weighted_samples() -> list[tuple[str, float]]:
         (s.raw_text, SOURCE_AUTHENTICITY_WEIGHT.get(s.source_type, _DEFAULT_WEIGHT))
         for s in get_all_samples()
     ]
+
+
+def get_weighted_samples_by_register() -> list[tuple[str, float, str]]:
+    """Same corpus, also tagged with source_type - for register-aware scoring
+    (voice_engine/similarity.py::burrows_delta_by_register), which needs to know
+    which samples belong to which "register" (raw speech vs polished post) rather
+    than just how authentic each one is."""
+    return [
+        (s.raw_text, SOURCE_AUTHENTICITY_WEIGHT.get(s.source_type, _DEFAULT_WEIGHT), s.source_type)
+        for s in get_all_samples()
+    ]
+
+
+def get_embedded_samples() -> list[tuple[str, float, list[float] | None]]:
+    """Same weighted corpus, plus each sample's embedding - computed once and cached
+    on the row (VoiceSample.embedding) rather than recomputed on every single draft.
+    Confirmed live this actually mattered: retrieval used to re-embed all 6 samples
+    on every draft (~20-50s just for that); with real samples numbering in the
+    dozens-to-hundreds this scales linearly and would make best-of-N drafting take
+    many minutes just on retrieval. A sample's embedding is only ever (re)computed
+    once, the first time it's needed after being added."""
+    samples = get_all_samples()
+    result: list[tuple[str, float, list[float] | None]] = []
+    to_update: list[tuple[int, list[float]]] = []
+    for s in samples:
+        weight = SOURCE_AUTHENTICITY_WEIGHT.get(s.source_type, _DEFAULT_WEIGHT)
+        if s.embedding:
+            vector = json.loads(s.embedding)
+        else:
+            vector = embed(s.raw_text)
+            if vector is not None:
+                to_update.append((s.id, vector))
+        result.append((s.raw_text, weight, vector))
+
+    if to_update:
+        with rx.session(url=config.db_url) as session:
+            for sample_id, vector in to_update:
+                row = session.get(VoiceSample, sample_id)
+                if row is not None:
+                    row.embedding = json.dumps(vector)
+                    session.add(row)
+            session.commit()
+
+    return result
 
 
 def clear_all_samples() -> int:

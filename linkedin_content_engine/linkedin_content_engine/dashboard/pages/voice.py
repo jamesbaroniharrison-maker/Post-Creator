@@ -277,9 +277,9 @@ def _word_chip(word: rx.Var) -> rx.Component:
 def _stats_card() -> rx.Component:
     """Real, corpus-derived stats (voice_engine/similarity.py), surfaced so James
     can see what the profile is actually picking up on rather than trust it blindly.
-    Zeta words feed the drafting prompt directly; bigrams are diagnostic only for now
-    - not yet distinctive enough at this corpus size to inject into generation (see
-    similarity.py's docstring)."""
+    Both Zeta words and bigrams now feed the drafting prompt directly - bigrams were
+    diagnostic-only until PMI-based ranking (vs. the original raw-frequency version)
+    started producing genuinely distinctive phrases instead of generic scaffolding."""
     return rx.card(
         rx.vstack(
             rx.heading("What the profile has picked up on", size="4"),
@@ -299,8 +299,8 @@ def _stats_card() -> rx.Component:
                 rx.text("Not enough corpus yet to say.", size="2", class_name="hud-muted"),
             ),
             rx.text(
-                "Two-word phrases that repeat across your writing - shown for visibility "
-                "only, not yet used in drafting until there's more corpus to work with.",
+                "Real two-word phrases from your own writing, ranked by how distinctive "
+                "they are (not just how common) - these feed into drafting too.",
                 size="2",
                 class_name="hud-muted",
                 margin_top="0.5rem",
@@ -313,6 +313,16 @@ def _stats_card() -> rx.Component:
                     wrap="wrap",
                 ),
                 rx.text("Not enough corpus yet to say.", size="2", class_name="hud-muted"),
+            ),
+            rx.cond(
+                DashboardState.voice_syntax_summary != "",
+                rx.text(
+                    DashboardState.voice_syntax_summary,
+                    size="2",
+                    class_name="hud-muted",
+                    margin_top="0.5rem",
+                ),
+                rx.fragment(),
             ),
             spacing="3",
             width="100%",
