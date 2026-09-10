@@ -16,7 +16,12 @@ import reflex as rx
 import reflex_local_auth
 
 from linkedin_content_engine.dashboard.components import PRIMARY_CTA, SECONDARY_CTA, empty_state, page_shell
-from linkedin_content_engine.dashboard.state import DashboardState, VoiceConvoPairView, VoiceSampleView
+from linkedin_content_engine.dashboard.state import (
+    DashboardState,
+    VoiceConvoPairView,
+    VoiceRegisterHealthView,
+    VoiceSampleView,
+)
 
 
 def _field_label(text: str) -> rx.Component:
@@ -331,12 +336,65 @@ def _stats_card() -> rx.Component:
     )
 
 
+def _health_row(row: VoiceRegisterHealthView) -> rx.Component:
+    return rx.hstack(
+        rx.badge(
+            row.register_label,
+            variant=rx.cond(row.is_primary_register, "solid", "soft"),
+            size="1",
+        ),
+        rx.text(f"{row.sample_count} sample(s) - ", size="2", class_name="hud-muted"),
+        rx.text(row.status_text, size="2", class_name="hud-muted"),
+        spacing="2",
+        wrap="wrap",
+        align="center",
+    )
+
+
+def _health_card() -> rx.Component:
+    """On-demand corpus-health check (request: "next upgrades" - surface register-
+    aware Delta readiness and validate_voice_metric's calibration check on the
+    dashboard instead of it only being reachable by running a script by hand)."""
+    return rx.card(
+        rx.vstack(
+            rx.heading("Corpus health", size="4"),
+            rx.text(
+                "How ready each writing register is: how many samples it has, whether "
+                "voice-matching is scoring against its own register yet (vs. a pooled "
+                "fallback), and - once there's enough to spare a holdout - whether "
+                "held-out real writing actually comes back scoring 'close'.",
+                size="2",
+                class_name="hud-muted",
+            ),
+            rx.button(
+                "Check corpus health",
+                on_click=DashboardState.check_voice_corpus_health,
+                **SECONDARY_CTA,
+            ),
+            rx.cond(
+                DashboardState.voice_health_checked,
+                rx.vstack(
+                    rx.foreach(DashboardState.voice_health_rows, _health_row),
+                    spacing="2",
+                    width="100%",
+                    margin_top="0.5rem",
+                ),
+                rx.fragment(),
+            ),
+            spacing="3",
+            width="100%",
+        ),
+        width="100%",
+    )
+
+
 @reflex_local_auth.require_login
 def voice_page() -> rx.Component:
     return page_shell(
         "/voice",
         _samples_card(),
         _stats_card(),
+        _health_card(),
         _add_sample_card(),
         _add_qa_card(),
         _add_conversation_card(),

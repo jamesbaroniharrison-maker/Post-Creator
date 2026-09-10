@@ -38,7 +38,12 @@ from linkedin_content_engine.research_cron.pipeline import JOB_NAME as RESEARCH_
 from linkedin_content_engine.research_cron.pipeline import run_daily_research
 from linkedin_content_engine.utils import as_utc
 from linkedin_content_engine.voice_engine.build_profile import build_and_save_profile
-from linkedin_content_engine.voice_engine.ingestion import add_sample, parse_labeled_conversation
+from linkedin_content_engine.voice_engine.ingestion import (
+    add_sample,
+    get_weighted_samples_by_register,
+    parse_labeled_conversation,
+)
+from linkedin_content_engine.voice_engine.similarity import TARGET_REGISTER, validate_voice_metric
 from linkedin_content_engine.scheduling import (
     WEEKLY_CAP,
     allocate_accepted_posts,
@@ -127,6 +132,17 @@ class VoiceConvoPairView(pydantic.BaseModel):
     index: int
     question: str
     answer: str
+
+
+class VoiceRegisterHealthView(pydantic.BaseModel):
+    """One register's (source_type's) readiness row on the Voice page's corpus-health
+    check - request: surface `validate_voice_metric`/register-aware Delta's readiness
+    on demand instead of it only being checkable by running a script."""
+
+    register_label: str
+    sample_count: int
+    is_primary_register: bool = False
+    status_text: str = ""
 
 
 class PlannedNoteView(pydantic.BaseModel):
@@ -314,6 +330,11 @@ class DashboardState(rx.State):
     # Real POS-ratio/passive-voice stats (voice_engine/syntax_profile.py, spaCy) -
     # diagnostic display only, not yet a drafting-prompt directive.
     voice_syntax_summary: str = ""
+    # Corpus health check (on demand, not on every load - request: surface
+    # `validate_voice_metric`/register-aware Delta readiness on the dashboard instead
+    # of needing to ask for a script run). Empty until "Check corpus health" is clicked.
+    voice_health_rows: list[VoiceRegisterHealthView] = []
+    voice_health_checked: bool = False
 
     # Gemini Q&A samples (request: "I'm having conversations with Gemini... it's
     # asking me a question, and I'm putting a text answer" - the answers are real,
@@ -1410,7 +1431,9 @@ class DashboardState(rx.State):
             self.voice_zeta_words = []
             self.voice_characteristic_bigrams = []
             self.voice_syntax_summary = ""
-        else:
+        self.voice_health_rows = []
+        self.voice_health_checked = False
+        if profile is not None:
             self.voice_profile_status = (
                 f"generated {profile.generated_at.strftime('%d %b %Y')} from "
                 f"{len(self.voice_samples)} current sample(s)"
@@ -1427,6 +1450,42 @@ class DashboardState(rx.State):
                 )
             else:
                 self.voice_syntax_summary = ""
+
+    @rx.event
+    def check_voice_corpus_health(self):
+        """On-demand corpus-health check (request: "next upgrades" -> surface
+        `validate_voice_metric`/register-aware Delta readiness on the dashboard
+        instead of it only being checkable by running a script). Cheap enough to run
+        live at this corpus size - not worth caching or running on every page load."""
+        corpus = get_weighted_samples_by_register()
+        counts: dict[str, int] = {}
+        for _text, _weight, source_type in corpus:
+            counts[source_type] = counts.get(source_type, 0) + 1
+        validation = validate_voice_metric(corpus)
+        rows = []
+        for register, count in sorted(counts.items(), key=lambda kv: -kv[1]):
+            result = validation.get(register, {"status": "not enough data"})
+            if result["status"] == "ok" and result.get("mean_held_out_delta") is not None:
+                status_text = (
+                    f"register-aware Delta is live and validated - {result['held_out_size']} held-out "
+                    f"sample(s) scored {result['mean_held_out_delta']:.2f} avg against a "
+                    f"{result['baseline_size']}-document baseline"
+                )
+            elif count >= 2:
+                status_text = "register-aware Delta is live (not yet enough samples to validate against a holdout)"
+            else:
+                needed = result.get("needed", 7)
+                status_text = f"pooled fallback only - needs {needed - count} more sample(s) to validate"
+            rows.append(
+                VoiceRegisterHealthView(
+                    register_label=humanize(register),
+                    sample_count=count,
+                    is_primary_register=(register == TARGET_REGISTER),
+                    status_text=status_text,
+                )
+            )
+        self.voice_health_rows = rows
+        self.voice_health_checked = True
 
     @rx.event
     def set_voice_new_sample_text(self, value: str):

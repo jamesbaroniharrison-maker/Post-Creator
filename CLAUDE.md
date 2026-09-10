@@ -1058,3 +1058,66 @@ populated every new field correctly, a real draft ran through the complete pipel
 with no errors (real register-aware `voice_delta` computed), and the Voice page's
 "What the profile has picked up on" card renders the new syntax summary line
 alongside the existing word/bigram chips, confirmed via a real browser screenshot.
+
+## Corpus-health dashboard card + a real quality floor on best-of-N (10 Sept 2026)
+
+Asked for "next upgrades" after the second stylometry tier above - given essentially
+every no-training-infrastructure stylometry idea from both roadmaps was now built,
+proposed three concrete options gated by what was actually still buildable rather than
+waiting on corpus size, and got "improve all... start with 1 and work through" while
+James slept. Corpus is still 6 samples (2 `linkedin_post` + 4 `gemini_qa`), unchanged
+since the last tier - so this round deliberately targeted things that don't need more
+data to be worth building, plus one honest test of whether something *does*.
+
+**1. Corpus-health card on the Voice page** - `validate_voice_metric`/register-aware
+Delta readiness was previously only checkable by running a script. New
+`DashboardState.check_voice_corpus_health` (on-demand event, not run on every page
+load - cheap at this corpus size but no reason to compute it unconditionally) groups
+the live corpus by register, reports each register's sample count, and calls
+`validate_voice_metric` to say whether that register is still pooled-fallback-only,
+live-but-unvalidated, or actually validated against a held-out sample. New
+`VoiceRegisterHealthView`, a "Check corpus health" button and result rows on
+`/voice`. Verified live via a real logged-in Playwright session, twice (once before,
+once after a server restart): both `linkedin_post` (2) and `gemini_qa` (4) correctly
+report "register-aware Delta is live (not yet enough samples to validate against a
+holdout)" - matches direct CLI verification of `validate_voice_metric` against the
+same real database.
+
+**2. Best-of-N gained an actual quality floor** (`draft.py::best_of_n_draft_post`) -
+previously drafted exactly `n` candidates and kept the least-bad one regardless of
+how far "least-bad" still was from the real corpus. New `DRAFT_QUALITY_FLOOR` (1.6,
+kept in sync with `dashboard/state.py::_voice_delta_label`'s own "distant" threshold
+rather than re-derived) and `DRAFT_QUALITY_FLOOR_MAX_ROUNDS` (2): if the best
+candidate after a round still scores at or above the floor, it drafts one more full
+round before settling, rather than accepting a distant result just because it was the
+best of a fixed batch. Capped at 2 rounds deliberately - unbounded retries on a corpus
+too small to ever produce "close" would just burn calls for nothing.
+
+Verified with three mocked scenarios before trusting it: (a) every candidate in round
+1 distant, a close one shows up in round 2 - correctly ran both rounds (6 calls) and
+kept the close one; (b) a close candidate in round 1 already - correctly stopped after
+one round (3 calls), never drafted more than needed; (c) every candidate across both
+rounds distant - correctly capped at exactly 2 rounds (6 calls) and returned the best
+available rather than looping forever. Then ran one real draft end to end through the
+live pipeline with no mocking (topic: a debugging-race-condition personal reflection,
+`skip_research=True`) - took 273.6s (best-of-3, doubled to 2 rounds since every
+candidate came back "distant" against the current 6-sample corpus - real, honest
+evidence the retry logic actually engaged, not just passed a mocked test), landed
+cleanly as post id 20 with `voice_delta` 2.316, readable, on-topic text.
+
+**3. Tested whether syntax stats are ready to graduate from diagnostic to a drafting
+directive** (same "prove it before promoting" discipline PMI bigrams got before they
+were trusted) - and the honest answer is no, for a reason worth recording rather than
+re-discovering later: computed `syntax_profile.py`'s stats split by register the same
+way Delta already is, and found the exact same heterogeneity instability that
+motivated register-aware Delta in the first place. Pooled `pct_passive_sentences` is
+6.2%, but split by register it's 18.2% for `linkedin_post` (2 documents) vs 5.1% for
+`gemini_qa` (4 documents) - a 3x swing driven by sample count, not a real stylistic
+difference. Worse, the absolute per-post noun/verb/adjective counts aren't even the
+right quantity to hand the model as a directive in the first place, since they scale
+with document length and the two registers have wildly different average lengths (the
+LinkedIn posts are ~90 words, the transcripts 300-500). Left as diagnostic-only,
+unchanged - promoting it now would mean forcing an unstable, register-confounded
+number into every draft's prompt, which is worse than not using it at all. Worth
+re-testing once there are more LinkedIn-post-register samples specifically, not just
+more samples generally.

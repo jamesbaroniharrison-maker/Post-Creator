@@ -719,6 +719,19 @@ def draft_post(
 # Burrows' Delta) instead of just taking whatever the model produced first.
 DRAFT_BEST_OF_N = int(os.environ.get("DRAFT_BEST_OF_N", 3))
 
+# Quality floor (request: "next upgrades" - best-of-N previously just kept the least-
+# bad of a fixed N candidates, even when every single one still scored "distant"
+# (dashboard/state.py::_voice_delta_label's own >=1.6 threshold - kept in sync with it
+# here deliberately, not re-derived). If the best candidate after a round still misses
+# the floor, draft one more full round before giving up rather than settling
+# immediately - genuinely spending more inference time on the posts that need it, not
+# just on every post equally. Capped at 2 rounds: at n=3 that's already up to 6 full
+# drafts (each with its own audit-gate pass) for one topic, which is real cost even at
+# "I don't care if generation takes a while" - unbounded retries on a corpus too small
+# to ever produce a "close" score would just burn calls for nothing.
+DRAFT_QUALITY_FLOOR = float(os.environ.get("DRAFT_QUALITY_FLOOR", 1.6))
+DRAFT_QUALITY_FLOOR_MAX_ROUNDS = int(os.environ.get("DRAFT_QUALITY_FLOOR_MAX_ROUNDS", 2))
+
 
 def best_of_n_draft_post(
     topic: str,
@@ -738,20 +751,30 @@ def best_of_n_draft_post(
     Candidates differ from each other because draft_post's own few-shot/discourse-
     opener sampling is randomised per call, not because this function changes the
     topic or rotation between attempts - it's the same assignment drafted several
-    times, not several different posts to choose between."""
-    n = n or DRAFT_BEST_OF_N
+    times, not several different posts to choose between.
+
+    Runs at least one round of `n` candidates, then keeps going (up to
+    DRAFT_QUALITY_FLOOR_MAX_ROUNDS rounds total) as long as the best candidate found
+    so far is still at or above DRAFT_QUALITY_FLOOR - a real floor, not just a winner
+    among however many happened to be tried."""
+    n = max(1, n or DRAFT_BEST_OF_N)
     corpus = get_weighted_samples_by_register()
 
     best_draft: DraftOutput | None = None
     best_delta: float | None = None
-    for _ in range(max(1, n)):
-        candidate = draft_post(topic, voice_profile, research, rotation)
-        delta = primary_voice_delta(candidate.text, corpus)
-        is_better = (
-            best_draft is None
-            or (delta is not None and (best_delta is None or delta < best_delta))
-        )
-        if is_better:
-            best_draft, best_delta = candidate, delta
+    for round_num in range(1, DRAFT_QUALITY_FLOOR_MAX_ROUNDS + 1):
+        for _ in range(n):
+            candidate = draft_post(topic, voice_profile, research, rotation)
+            delta = primary_voice_delta(candidate.text, corpus)
+            is_better = (
+                best_draft is None
+                or (delta is not None and (best_delta is None or delta < best_delta))
+            )
+            if is_better:
+                best_draft, best_delta = candidate, delta
+
+        meets_floor = best_delta is not None and best_delta < DRAFT_QUALITY_FLOOR
+        if meets_floor or round_num >= DRAFT_QUALITY_FLOOR_MAX_ROUNDS:
+            break
 
     return best_draft, best_delta
