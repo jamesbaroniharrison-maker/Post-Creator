@@ -9,3 +9,4 @@ __pycache__/
 documents/*
 !documents/README.md
 linkedin_content_engine/linkedin_content_engine/context/about_me.md
+linkedin_content_engine/linkedin_content_engine/context/voice_profile_report.md

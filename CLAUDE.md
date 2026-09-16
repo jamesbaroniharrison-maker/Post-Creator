@@ -1121,3 +1121,81 @@ unchanged - promoting it now would mean forcing an unstable, register-confounded
 number into every draft's prompt, which is worse than not using it at all. Worth
 re-testing once there are more LinkedIn-post-register samples specifically, not just
 more samples generally.
+
+## Multi-select batch drafting on the Topic Bank (16 Sept 2026)
+
+Request: "add the ability to select multiple topics to queue to draft at the same
+time." Each bank row (`dashboard/pages/topic_bank.py`) gained a checkbox
+(`BankView.is_selected`, flipped via `DashboardState.toggle_bank_selection` - flags
+live on the row itself rather than a separate id list, since Reflex 0.9.8's Var API
+has no list `.contains()` to check membership from inside a `rx.foreach` render). A
+"Draft selected" bar appears once at least one row is checked
+(`selected_bank_count` computed var) with Clear/Draft buttons; a new background
+event `generate_from_selected_bank_rows` loops the checked ids through the same
+`_draft_from_bank_row` helper `generate_from_bank`/`fill_week` already share,
+reporting live progress ("Drafting 2 of 5...") as it goes rather than one message at
+the end. Selected rows get a gold border (new `.hud-card-selected` CSS class,
+matching `.hud-card-today`'s specificity-fix pattern - a plain inline `border=` prop
+loses to `.rt-Card`'s own `!important` rule).
+
+Verified live, spending real API credits on purpose (explicit: "I have credits"):
+ran two real bank rows through the actual queueing path outside the Reflex wrapper -
+both drafted successfully with real `voice_delta` scores and both bank rows
+correctly marked used - then confirmed the checkbox/selection-bar UI in a real
+logged-in browser session (2 selected -> "2 topic(s) selected" bar with working
+Clear/Draft buttons, gold borders on the selected cards).
+
+## Voice profile report + per-source-type sample counts (16 Sept 2026)
+
+Request (dictated): counts per sample type ("Q&A or the LinkedIn post ones") on the
+dashboard, plus "something that has a... master corpus... that relates to the
+samples... certain similarities between word usage, phrase usage, tonality,
+phrasings... where I use quotations, where I use filler words, where I use
+connector words... continually updated every time a new corpus voice is created."
+Asked to research what such a document should contain before building it - answer:
+mostly things this project had already built (Zeta words, PMI bigrams, register-
+aware Delta, syntax stats) plus a handful of small, well-understood additions with
+no training/model cost (lexical diversity via type-token ratio, filler/connector-word
+rate, quotation-mark rate, a heuristic British/American spelling check, average
+sentence/word length) - not a new scoring mechanism, a report that assembles what
+already exists plus these few additions into one place.
+
+**Sample counts**: new `SampleCountView`/`DashboardState.voice_sample_counts`,
+populated in `_reload_voice`, rendered as badges ("Gemini Qa: 9 · Linkedin Post: 2")
+on the Voice page's "Your samples" card.
+
+**`voice_engine/report.py`** (new): `compute_word_usage_stats` computes the new
+metrics above, normalised per 1,000 words so a 90-word LinkedIn post and a 500-word
+interview answer are comparable (the same register-heterogeneity concern already
+documented for Delta/syntax elsewhere in this file applies here too).
+`generate_voice_report_markdown` assembles a full Markdown doc: corpus overview,
+per-register health (reusing `validate_voice_metric`), a section answering "does
+what's being produced actually resemble the samples" (the last 15 real drafts'
+`voice_delta` scores, close/typical/distant counts - the literal test requested,
+not a proxy), Zeta words, PMI bigrams, the new word-usage stats (pooled and by
+register), syntax/tone stats, and an explicit limitations section (small-sample
+caveats, the spelling check is a fixed word list not a real dialect model, topic-
+conditioned phrasing isn't separately tested yet since there isn't enough data to
+split by topic *and* register without every slice becoming too small to mean
+anything).
+
+**Regeneration**: `build_and_save_profile()` now writes the report to
+`context/voice_profile_report.md` every time it runs (dashboard's "Regenerate voice
+profile" button, or the CLI equivalent) - matching the request that it "needs to be
+continually updated every time a new corpus voice is created," not tied to every
+individual sample add (which doesn't itself trigger profile work in this app, and
+wasn't asked to start doing so here). Gitignored like `context/about_me.md` - it
+quotes real fragments of private writing, not just aggregate numbers, so it isn't
+repo content.
+
+Verified live, not just written and assumed correct: ran a real full profile
+regeneration (133s, real `llm_close_read` call included) against the live database,
+which had grown to 11 real samples (9 `gemini_qa`, 2 `linkedin_post`) since the
+last session - confirmed the report file was written and its content was
+genuinely informative, not just structurally present: the `gemini_qa` register had
+crossed the validation threshold for the first time (previously always "not enough
+data") and reported a real result ("validated - 1 held-out sample scored 0.98 avg
+against an 8-document baseline"), and the recent-drafts section correctly pulled 14
+real posts' actual `voice_delta` history. Confirmed the dashboard's new sample-count
+badges and the report-location note render correctly via a real logged-in browser
+session.

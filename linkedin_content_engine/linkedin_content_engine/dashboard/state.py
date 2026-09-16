@@ -122,6 +122,14 @@ class ForcedTopicView(pydantic.BaseModel):
     category_label: str = ""
 
 
+class SampleCountView(pydantic.BaseModel):
+    """Per-source-type sample count (request: "add a count to show how many of each
+    type of sample I've got, like the Q&A or the LinkedIn post ones")."""
+
+    source_type_label: str
+    count: int
+
+
 class VoiceSampleView(pydantic.BaseModel):
     id: int
     preview: str
@@ -325,6 +333,7 @@ class DashboardState(rx.State):
     # every single draft has been running on 5 placeholder samples since 2 Sept 2026
     # with no way for James to replace them short of editing the database directly.
     voice_samples: list[VoiceSampleView] = []
+    voice_sample_counts: list[SampleCountView] = []
     voice_new_sample_text: str = ""
     voice_profile_status: str = "no profile generated yet"
     # Zeta words (real, corpus-derived - voice_engine/similarity.py::compute_zeta_
@@ -1494,6 +1503,13 @@ class DashboardState(rx.State):
                 question_preview=s.question or "",
             )
             for s in samples
+        ]
+        counts: dict[str, int] = {}
+        for s in samples:
+            counts[s.source_type] = counts.get(s.source_type, 0) + 1
+        self.voice_sample_counts = [
+            SampleCountView(source_type_label=humanize(source_type), count=count)
+            for source_type, count in sorted(counts.items(), key=lambda kv: -kv[1])
         ]
         if profile is None:
             self.voice_profile_status = "no profile generated yet"

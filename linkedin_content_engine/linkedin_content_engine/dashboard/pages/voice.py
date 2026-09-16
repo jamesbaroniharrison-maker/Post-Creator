@@ -18,6 +18,7 @@ import reflex_local_auth
 from linkedin_content_engine.dashboard.components import PRIMARY_CTA, SECONDARY_CTA, empty_state, page_shell
 from linkedin_content_engine.dashboard.state import (
     DashboardState,
+    SampleCountView,
     VoiceConvoPairView,
     VoiceRegisterHealthView,
     VoiceSampleView,
@@ -61,6 +62,10 @@ def _sample_row(item: VoiceSampleView) -> rx.Component:
     )
 
 
+def _sample_count_badge(item: SampleCountView) -> rx.Component:
+    return rx.badge(f"{item.source_type_label}: {item.count}", variant="soft", size="1")
+
+
 def _samples_card() -> rx.Component:
     return rx.card(
         rx.vstack(
@@ -71,6 +76,11 @@ def _samples_card() -> rx.Component:
                 "profile sounds like you and not a generic placeholder.",
                 size="2",
                 class_name="hud-muted",
+            ),
+            rx.hstack(
+                rx.foreach(DashboardState.voice_sample_counts, _sample_count_badge),
+                spacing="2",
+                wrap="wrap",
             ),
             rx.text(DashboardState.voice_profile_status, size="1", class_name="hud-muted"),
             rx.cond(
@@ -328,6 +338,14 @@ def _stats_card() -> rx.Component:
                     margin_top="0.5rem",
                 ),
                 rx.fragment(),
+            ),
+            rx.text(
+                "A fuller write-up (word/phrase usage, filler and connector words, "
+                "quotation habits, recent draft-to-corpus similarity) is written to "
+                "context/voice_profile_report.md every time the profile is regenerated.",
+                size="1",
+                class_name="hud-muted",
+                margin_top="0.5rem",
             ),
             spacing="3",
             width="100%",
