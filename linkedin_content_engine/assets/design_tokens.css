@@ -145,6 +145,13 @@ code, .rt-Code, .hud-mono {
   border: 2px solid var(--accent-terracotta) !important;
 }
 
+/* Selected topic bank row (queued for batch drafting) - same specificity fix as
+   .hud-card-today above, needed for the same reason (a plain inline border prop
+   loses to .rt-Card's own !important rule). */
+.rt-Card.hud-card-selected {
+  border: 2px solid var(--accent-gold) !important;
+}
+
 .hud-muted {
   color: var(--text-muted) !important;
 }

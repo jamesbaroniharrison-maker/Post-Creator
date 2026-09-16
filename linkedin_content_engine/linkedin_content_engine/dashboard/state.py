@@ -108,6 +108,11 @@ class BankView(pydantic.BaseModel):
     tier_label: str = ""
     category: str
     category_label: str = ""
+    # Multi-select for queued drafting (request: "select multiple topics to queue to
+    # draft at the same time") - tracked on the row itself rather than a separate
+    # id list, since Reflex 0.9.8's Var API has no list .contains() to check
+    # membership from inside a rx.foreach render function.
+    is_selected: bool = False
 
 
 class ForcedTopicView(pydantic.BaseModel):
@@ -1103,6 +1108,70 @@ class DashboardState(rx.State):
         async with self:
             self.is_busy = False
             self.status_message = message
+            self._reload_posts()
+            self._reload_bank()
+            self._reload_stats()
+
+    @rx.event
+    def toggle_bank_selection(self, bank_id: int):
+        """Multi-select for queued drafting (request: "select multiple topics to
+        queue to draft at the same time"). Flips one row's checkbox - flags live on
+        the row itself (BankView.is_selected) rather than a separate id list, since
+        there's no list-membership check available from inside a foreach render."""
+        self.bank_rows = [
+            row.model_copy(update={"is_selected": not row.is_selected}) if row.id == bank_id else row
+            for row in self.bank_rows
+        ]
+
+    @rx.event
+    def clear_bank_selection(self):
+        self.bank_rows = [row.model_copy(update={"is_selected": False}) for row in self.bank_rows]
+
+    @rx.var
+    def selected_bank_count(self) -> int:
+        return sum(1 for row in self.bank_rows if row.is_selected)
+
+    @rx.event(background=True)
+    async def generate_from_selected_bank_rows(self):
+        """Draft every currently-checked topic bank row, one after another, reusing
+        the same _draft_from_bank_row helper generate_from_bank/fill_week already
+        share rather than duplicating the research/post-type/mark-used steps. Reports
+        progress as it goes (each `async with self:` exit pushes a real UI update,
+        not just a single message at the end) since drafting several topics back to
+        back - each one its own best-of-N pass - is genuinely slow."""
+        async with self:
+            selected_ids = [row.id for row in self.bank_rows if row.is_selected]
+            if not selected_ids:
+                return
+            self.is_busy = True
+
+        succeeded = 0
+        failed = 0
+        for i, bank_id in enumerate(selected_ids, start=1):
+            async with self:
+                self.status_message = f"Drafting {i} of {len(selected_ids)} selected topics..."
+
+            with rx.session(url=config.db_url) as session:
+                bank_row = session.get(TopicBank, bank_id)
+                if bank_row is None:
+                    failed += 1
+                    continue
+                summary, source_title, source_url, category = (
+                    bank_row.summary,
+                    bank_row.source_title,
+                    bank_row.source_url,
+                    bank_row.category,
+                )
+            try:
+                _draft_from_bank_row(bank_id, summary, source_title, source_url, category)
+                succeeded += 1
+            except Exception:  # noqa: BLE001 - one failure shouldn't stop the rest of the queue
+                failed += 1
+
+        async with self:
+            self.is_busy = False
+            failure_note = f" ({failed} failed)" if failed else ""
+            self.status_message = f"Drafted {succeeded} of {len(selected_ids)} selected topics{failure_note}."
             self._reload_posts()
             self._reload_bank()
             self._reload_stats()

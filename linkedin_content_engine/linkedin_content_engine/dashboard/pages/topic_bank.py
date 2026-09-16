@@ -10,6 +10,12 @@ from linkedin_content_engine.dashboard.state import BankView, DashboardState
 def _bank_row_card(row: BankView) -> rx.Component:
     return rx.card(
         rx.hstack(
+            rx.checkbox(
+                checked=row.is_selected,
+                on_change=lambda _: DashboardState.toggle_bank_selection(row.id),
+                size="2",
+                margin_top="0.25rem",
+            ),
             rx.vstack(
                 rx.hstack(
                     rx.badge(
@@ -49,6 +55,7 @@ def _bank_row_card(row: BankView) -> rx.Component:
             align="start",
         ),
         width="100%",
+        class_name=rx.cond(row.is_selected, "hud-card-selected", ""),
     )
 
 
@@ -88,6 +95,45 @@ def _link_date_picker() -> rx.Component:
     )
 
 
+def _batch_draft_bar() -> rx.Component:
+    """Request: "add the ability to select multiple topics to queue to draft at the
+    same time." Only shows once at least one row is checked - stays out of the way
+    otherwise. Queues drafts one after another via generate_from_selected_bank_rows,
+    reusing the exact same _draft_from_bank_row path "Generate draft" already uses
+    per row, just looped."""
+    return rx.cond(
+        DashboardState.selected_bank_count > 0,
+        rx.card(
+            rx.hstack(
+                rx.text(
+                    DashboardState.selected_bank_count.to_string() + " topic(s) selected",
+                    size="2",
+                    weight="medium",
+                ),
+                rx.spacer(),
+                rx.button(
+                    "Clear selection",
+                    on_click=DashboardState.clear_bank_selection,
+                    size="2",
+                    **SECONDARY_CTA,
+                ),
+                rx.button(
+                    "Draft selected",
+                    on_click=DashboardState.generate_from_selected_bank_rows,
+                    loading=DashboardState.is_busy,
+                    size="2",
+                    **PRIMARY_CTA,
+                ),
+                width="100%",
+                align="center",
+                wrap="wrap",
+            ),
+            width="100%",
+        ),
+        rx.fragment(),
+    )
+
+
 @reflex_local_auth.require_login
 def topic_bank_page() -> rx.Component:
     body = rx.cond(
@@ -104,11 +150,13 @@ def topic_bank_page() -> rx.Component:
         rx.vstack(
             rx.heading("Topic Bank", size="5"),
             rx.text(
-                "Unused findings, high tier first - generate a draft directly, or leave it banked.",
+                "Unused findings, high tier first - generate a draft directly, or leave it banked. "
+                "Check several rows to draft them all as a queue.",
                 size="2",
                 class_name="hud-muted",
             ),
             _link_date_picker(),
+            _batch_draft_bar(),
             body,
             spacing="4",
             width="100%",
