@@ -616,6 +616,20 @@ def draft_post(
     # almost verbatim as its opening instead of just matching its style - a smaller,
     # rotating sample gives it less of a single complete example to copy wholesale.
     #
+    # Only offer exemplars whose own natural shape matches *this draft's* assigned
+    # structural_format - real bug found and fixed, not hypothetical: the "AI website
+    # flipping" exemplar has a bolded-label three-point breakdown (rotation.py's
+    # skimmable_index shape) and used to be shown regardless of which format got
+    # assigned, so a concrete, strongly-shaped example kept winning over the abstract
+    # "don't copy the structure" instruction and the actual assigned format - drafts
+    # kept coming out as a 1-3 point bulleted breakdown no matter what. Confirmed via
+    # the real corpus this wasn't a corpus-size problem: neither real linkedin_post
+    # sample has any bulleted/listed structure at all. Falls back to the full pool
+    # only if literally nothing matches (shouldn't happen - all three formats have at
+    # least one exemplar), so this never leaves a draft with zero examples.
+    _format_matched_exemplars = [text for text, fmt in PERSONA_EXEMPLARS if fmt == structural_format]
+    _persona_exemplar_pool = _format_matched_exemplars or [text for text, _fmt in PERSONA_EXEMPLARS]
+    #
     # Real-corpus examples are picked by topic similarity, not the profile's fixed
     # length-based set - "retrieve the example closest to this post's actual angle."
     # Tries real local embeddings first (voice_engine/embeddings.py, Ollama's
@@ -634,7 +648,7 @@ def draft_post(
     _topic_shortlist = most_similar_by_embedding(topic, _embedded_samples, n=_shortlist_n)
     if _topic_shortlist is None:
         _topic_shortlist = most_similar_texts(topic, _real_samples, n=_shortlist_n)
-    _few_shot_pool = [*PERSONA_EXEMPLARS, *(_topic_shortlist or voice_profile.get("few_shot_examples", []))]
+    _few_shot_pool = [*_persona_exemplar_pool, *(_topic_shortlist or voice_profile.get("few_shot_examples", []))]
     few_shot_examples = random.sample(_few_shot_pool, min(2, len(_few_shot_pool)))
 
     system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(

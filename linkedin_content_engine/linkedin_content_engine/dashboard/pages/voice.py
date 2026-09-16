@@ -29,8 +29,17 @@ def _field_label(text: str) -> rx.Component:
     return rx.text(text, size="1", weight="medium", class_name="hud-muted")
 
 
+def _contribution_chip(word: rx.Var) -> rx.Component:
+    return rx.badge(word, variant="soft", size="1")
+
+
 def _sample_row(item: VoiceSampleView) -> rx.Component:
-    return rx.hstack(
+    """Request: "I want to be able to click on each one of the samples and it
+    expands out so I can see all the information in it... what information it
+    pulled from each one." Clicking the row (not the delete icon) toggles a real
+    attribution view - the actual Zeta words/bigrams from the profile that this
+    specific sample's own text contains, not a generic explanation."""
+    header = rx.hstack(
         rx.vstack(
             rx.hstack(
                 rx.badge(item.source_type_label, variant="outline", size="1"),
@@ -49,12 +58,79 @@ def _sample_row(item: VoiceSampleView) -> rx.Component:
             width="100%",
         ),
         rx.icon(
+            rx.cond(item.is_expanded, "chevron-up", "chevron-down"),
+            size=16,
+            class_name="hud-muted",
+            flex_shrink="0",
+        ),
+        rx.icon(
             "x",
             size=14,
             cursor="pointer",
-            on_click=DashboardState.delete_voice_sample(item.id),
+            on_click=[DashboardState.delete_voice_sample(item.id), rx.stop_propagation],
             class_name="hud-muted",
+            flex_shrink="0",
         ),
+        width="100%",
+        align="start",
+        cursor="pointer",
+        on_click=DashboardState.toggle_sample_expanded(item.id),
+    )
+    expanded_detail = rx.cond(
+        item.is_expanded,
+        rx.vstack(
+            rx.text(item.full_text, size="2", white_space="pre-wrap"),
+            rx.cond(
+                (item.contributing_zeta_words.length() > 0) | (item.contributing_bigrams.length() > 0),
+                rx.vstack(
+                    rx.text(
+                        "What this sample contributes to the profile:",
+                        size="1",
+                        weight="medium",
+                        class_name="hud-muted",
+                    ),
+                    rx.cond(
+                        item.contributing_zeta_words.length() > 0,
+                        rx.hstack(
+                            rx.foreach(item.contributing_zeta_words, _contribution_chip),
+                            spacing="2",
+                            wrap="wrap",
+                        ),
+                        rx.fragment(),
+                    ),
+                    rx.cond(
+                        item.contributing_bigrams.length() > 0,
+                        rx.hstack(
+                            rx.foreach(item.contributing_bigrams, _contribution_chip),
+                            spacing="2",
+                            wrap="wrap",
+                        ),
+                        rx.fragment(),
+                    ),
+                    spacing="2",
+                    align="start",
+                    width="100%",
+                    margin_top="0.5rem",
+                ),
+                rx.text(
+                    "None of the profile's current Zeta words or characteristic phrases "
+                    "happen to appear in this specific sample's text.",
+                    size="1",
+                    class_name="hud-muted",
+                    margin_top="0.5rem",
+                ),
+            ),
+            spacing="2",
+            width="100%",
+            padding_top="0.5rem",
+            border_top="1px solid var(--border)",
+            margin_top="0.5rem",
+        ),
+        rx.fragment(),
+    )
+    return rx.vstack(
+        header,
+        expanded_detail,
         width="100%",
         align="start",
         padding="0.6rem 0.75rem",

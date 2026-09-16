@@ -110,8 +110,23 @@ purely to sound relatable counts as a violation."""
 
 # Golden few-shot exemplars, provided directly rather than derived from the corpus -
 # kept verbatim so their exact rhythm, structure, and phrasing stay available.
+#
+# Each is tagged with the structural_format (rotation.py) its own natural shape
+# actually matches. Real finding, not a hypothetical: the "AI website flipping"
+# exemplar below has a bolded-label three-point breakdown - exactly rotation.py's
+# skimmable_index shape - and draft.py used to show it as a candidate regardless of
+# which structural_format got assigned that draft. Confirmed via the real corpus
+# (both actual linkedin_post samples are short narrative announcements, no bulleted
+# structure at all) that this exemplar, not the real corpus, was the actual source of
+# "every draft turns into a 1-3 point bulleted breakdown" - a concrete example this
+# strong reliably wins over an abstract "don't copy the structure" instruction, the
+# same instruction-vs-example failure mode already documented elsewhere in this file
+# (DISCOURSE_OPENERS/CONVERSATIONAL_BRIDGES, and PERSONA_EXEMPLARS itself originally).
+# Fixed by only offering an exemplar to a draft whose assigned structural_format
+# actually matches it - see draft.py's few-shot pool assembly.
 PERSONA_EXEMPLARS = [
-    """Five years ago, I was just starting uni.
+    (
+        """Five years ago, I was just starting uni.
 
 If I had five minutes with myself back then, I wouldn't waste time giving myself some \
 complicated business strategy. I'd tell myself three very blunt things:
@@ -132,7 +147,10 @@ having fun, just wasting time on useless crap that moves nothing forward.
 When it's time to work, execute and push yourself. When it's time to live, switch off, \
 travel, see people, and let your hair down. Get rid of the passive middle ground \
 entirely.""",
-    """The biggest shit show I ever saw was a group interview for a recruitment firm \
+        "narrative",
+    ),
+    (
+        """The biggest shit show I ever saw was a group interview for a recruitment firm \
 in London.
 
 Ten minutes in, the room turned into an Olympic competition of who could brown-nose \
@@ -153,7 +171,10 @@ completely backwards. It degrades the real work you're there to do.
 Business is just people trying to build things together. If winning requires playing \
 performance games instead of being real, it's just not for me. Give me genuine \
 competence and real human connection every day of the week.""",
-    """It is ridiculously easy to let your entire world shrink to your laptop screen \
+        "narrative",
+    ),
+    (
+        """It is ridiculously easy to let your entire world shrink to your laptop screen \
 and your commute.
 
 You see it all the time. People get locked into the exact same routine, buy the exact \
@@ -170,7 +191,10 @@ nothing about and find out what makes them tick.
 How you dress, how you spend your downtime, and the perspectives you pick up from \
 travelling are how your identity actually develops. If you never expand your \
 horizons, you're just running someone else's script.""",
-    """Everyone is hyping up "build and flip AI websites in 10 minutes" right now.
+        "binary_contrast",
+    ),
+    (
+        """Everyone is hyping up "build and flip AI websites in 10 minutes" right now.
 
 The playbook sounds easy: use an automated builder, generate a site with a prompt, \
 and charge a client £500. It looks like free money until you actually run the \
@@ -194,4 +218,6 @@ Shiny marketing always ignores unit economics.
 If the service you sell relies on cutting corners that you then have to fix with \
 unbilled hours, you haven't built a scalable agency. You've just bought yourself a \
 low-paying job.""",
+        "skimmable_index",
+    ),
 ]

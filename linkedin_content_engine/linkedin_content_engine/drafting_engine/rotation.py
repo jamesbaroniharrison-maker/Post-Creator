@@ -17,6 +17,12 @@ import sqlmodel
 from rxconfig import config
 from linkedin_content_engine.models import Post
 
+FUNNEL_STAGES = ["TOF", "MOF", "BOF"]
+
+# What the dashboard's per-queued-topic dropdowns use for "let this field decide
+# automatically" - not "standard", since LENGTH_BUCKETS already has a real, distinct
+# "standard" value (see assign_rotation's docstring for the collision this avoided).
+AUTO_SENTINEL = "auto"
 HOOK_POSTURES = [
     "empirical",
     "aspirational_contrast",
@@ -91,21 +97,40 @@ def _pick_length_bucket() -> str:
     return random.choices(options, weights=weights, k=1)[0]
 
 
-def assign_rotation(scheduled_week: str | None = None) -> dict:
+def assign_rotation(scheduled_week: str | None = None, overrides: dict[str, str] | None = None) -> dict:
     """Pick this post's funnel stage + THBM execution variables, excluding whatever the
     last 3 posts used, per the framework's anti-fatigue rule (length is handled
-    separately - see _pick_length_bucket)."""
+    separately - see _pick_length_bucket).
+
+    `overrides` (request: "if I don't put an option, it just becomes a standard post...
+    but I want to actually be able to choose for certain ones what kind of style I
+    want") lets a caller force specific fields instead of letting this function pick
+    them - e.g. queuing a topic with "Hook posture: in medias res" chosen explicitly
+    while leaving everything else on auto. Any field left out of `overrides` (or set
+    to the AUTO_SENTINEL the dashboard uses for "let it decide as normal") is picked
+    exactly as before - this never changes the default, no-override behaviour.
+
+    AUTO_SENTINEL is deliberately not the string "standard" - LENGTH_BUCKETS already
+    has a real, different "standard" value (the sweet-spot length choice), so reusing
+    that word as the dashboard's "auto-decide" sentinel would make a length-bucket
+    dropdown show "Standard" twice with no way to tell them apart, and would silently
+    treat "force standard length" the same as "don't force anything" - confirmed live
+    while testing this, not a hypothetical."""
     recent = _recent_posts()
     used_hooks = {p.hook_posture for p in recent if p.hook_posture}
     used_formats = {p.structural_format for p in recent if p.structural_format}
     used_media = {p.media_pairing for p in recent if p.media_pairing}
 
-    funnel_stage = random.choice(_week_ratio(scheduled_week) if scheduled_week else ["TOF", "MOF", "BOF"])
+    funnel_stage = random.choice(_week_ratio(scheduled_week) if scheduled_week else FUNNEL_STAGES)
 
-    return {
+    result = {
         "funnel_stage": funnel_stage,
         "hook_posture": _pick_excluding(HOOK_POSTURES, used_hooks),
         "length_bucket": _pick_length_bucket(),
         "structural_format": _pick_excluding(STRUCTURAL_FORMATS, used_formats),
         "media_pairing": _pick_excluding(MEDIA_PAIRINGS, used_media),
     }
+    for key, value in (overrides or {}).items():
+        if value and value != AUTO_SENTINEL:
+            result[key] = value
+    return result

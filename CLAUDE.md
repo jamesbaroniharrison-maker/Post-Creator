@@ -1199,3 +1199,93 @@ against an 8-document baseline"), and the recent-drafts section correctly pulled
 real posts' actual `voice_delta` history. Confirmed the dashboard's new sample-count
 badges and the report-location note render correctly via a real logged-in browser
 session.
+
+## Per-topic style dropdowns for the batch queue + expandable samples + a real fix
+## for the "every draft turns into a bulleted breakdown" complaint (16 Sept 2026)
+
+Three requests in one message, handled in order, plus a fourth surfaced mid-turn
+("I didn't mean to stop that one before... keep going") - resuming the queue
+feature after an accidental interruption.
+
+**Per-topic style dropdowns**: request: "take each one of the ones I selected to
+queue into a box, don't start generating them yet... add a selection of dropdowns
+for each one either put it as standard... or actually choose how I want them to
+come out." The Topic Bank's batch-select ("Multi-select batch drafting", 16 Sept
+entry above) drafted immediately on "Draft selected" - changed to a two-step flow:
+"Queue selected" moves checked rows into a new `draft_queue` (`QueuedDraftView`,
+carrying its own copy of the bank row's data, not re-fetched at draft time) instead
+of drafting; a "Draft queue" card lists each queued topic with 5 dropdowns (funnel
+stage, hook posture, length, structural format, media pairing), each defaulting to
+`AUTO_SENTINEL`; "Generate all queued" (`DashboardState.generate_queued_drafts`)
+loops the queue, passing each item's non-auto selections through as
+`rotation_overrides` (new param threaded through `assign_rotation` ->
+`generate_draft_with_research` -> `_draft_from_bank_row`) so a field left on
+"Standard" is picked exactly as automatically as it always has been.
+
+**Real bug caught before shipping, not after**: the first version used the literal
+string `"standard"` as the "let it auto-decide" sentinel - but `LENGTH_BUCKETS`
+already has a real, distinct `"standard"` value (the sweet-spot length choice,
+~68% weighted). Confirmed live: this made the Length dropdown show "Standard"
+twice with no way to tell them apart, and the override-skip check
+(`value != "standard"`) would have silently treated "force standard length" the
+same as "don't force anything." Fixed by introducing `rotation.py::AUTO_SENTINEL =
+"auto"`, which can never collide with a real rotation value, and a dashboard-side
+`_style_select` helper that always displays it as "Standard" regardless.
+
+Verified for real, not just wired up: ran the actual queue-and-generate flow
+through a live browser session - checked one bank row, set Hook posture to "In
+Medias Res" and Structural format to "Narrative" via the real dropdowns, left the
+other three on Standard, clicked "Generate all queued." The resulting post (id 27)
+came back with `hook_posture="in_medias_res"` and `structural_format="narrative"`
+exactly as chosen, while `funnel_stage`/`length_bucket`/`media_pairing` were picked
+automatically as normal - confirmed directly against the database, not assumed.
+
+**Expandable samples**: request: "click on each one of the samples and it expands
+out... what information it pulled from each one... like phrasings." Sample rows on
+`/voice` are now clickable (`DashboardState.toggle_sample_expanded`) to reveal the
+full raw text plus real attribution - new `_words_present_in`/`_bigrams_present_in`
+helpers (`dashboard/state.py`) check which of the profile's actual Zeta
+words/characteristic bigrams appear in *that specific sample's* own text (a real
+token/bigram-pair check, not a guess or an even split across samples). Verified
+live: a raw mouse-coordinate click on a sample row grew it from 3 to 5 paragraphs
+(full text + attribution appeared) - the first Playwright locator-based click
+attempt silently missed the actual clickable element and falsely looked like a
+failure, corrected by testing with a direct coordinate click instead.
+
+**The real fix for "every LinkedIn-post draft turns into a variation of one of my
+two real posts, with the same 1-3 bullet points structure"**: investigated before
+concluding it was a corpus-size problem, and it wasn't. Printed both real
+`linkedin_post` samples directly - neither has any bulleted/listed structure at
+all (they're short narrative announcements: a university acceptance, a course
+completion). The actual source was `persona.py::PERSONA_EXEMPLARS[3]` (the
+hand-authored "AI website flipping" example) - a bolded-label three-point
+breakdown that happens to be exactly rotation.py's `skimmable_index` shape - being
+offered to every draft regardless of which `structural_format` got assigned that
+post, so a concrete, strongly-shaped example kept winning over both the prompt's
+"don't copy the structure" instruction and the actually-assigned format. The same
+instruction-vs-concrete-example failure mode already documented twice elsewhere in
+this file (DISCOURSE_OPENERS/CONVERSATIONAL_BRIDGES, and PERSONA_EXEMPLARS' own
+plagiarism fix), just not yet caught for structure specifically.
+
+Fixed at the source, not by asking the model harder: `PERSONA_EXEMPLARS` is now a
+list of `(text, structural_format)` tuples, each tagged with the format its own
+natural shape actually matches (2x `narrative`, 1x `binary_contrast`, 1x
+`skimmable_index`) - `draft.py`'s few-shot pool now only offers a draft the
+exemplar(s) matching *that draft's own assigned* `structural_format`, falling back
+to the full pool only if literally nothing matches (never happens - all three
+formats are covered). Verified directly: the skimmable_index-shaped exemplar now
+only appears in the pool for skimmable_index drafts, confirmed for all three
+format values. The live end-to-end test above (structural_format="narrative")
+produced clean flowing prose with no bulleted breakdown, corroborating the fix.
+
+**Answered directly rather than acted on without discussion**: James asked whether
+he should have me generate synthetic example LinkedIn posts to pad out variety.
+Recommended against writing fabricated posts into the actual voice corpus
+(`VoiceSample` table) - that's the exact data the whole system treats as ground
+truth for "what James's real voice sounds like" (`SOURCE_AUTHENTICITY_WEIGHT`,
+Delta, Zeta all key off it being genuine), and injecting synthetic content into it
+would corrupt that signal rather than diversify it. The structural-format fix
+above is the honest alternative: it solves the actual reported symptom (structural
+sameness) without needing any new data, real or synthetic - the standing
+recommendation for the corpus itself is still just more of James's own real
+LinkedIn posts, particularly since that register still only has 2 samples.

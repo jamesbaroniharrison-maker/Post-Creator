@@ -32,15 +32,18 @@ def generate_draft_with_research(
     post_type: str,
     research: ResearchResult,
     source_bank_id: int | None = None,
+    rotation_overrides: dict[str, str] | None = None,
 ) -> Post:
     """Draft and save one post, given research that's already been gathered.
 
     Used directly by the dashboard's "generate from topic bank" action (spec Â§3d),
     where the bank row's own summary/source already is the research - no need to
-    re-search.
+    re-search. `rotation_overrides` (request: per-queued-topic style dropdowns on
+    the Topic Bank's batch-draft queue) forces specific THBM fields instead of
+    letting assign_rotation pick them - anything left unset stays fully automatic.
     """
     voice_profile = load_voice_profile()
-    rotation = assign_rotation()
+    rotation = assign_rotation(overrides=rotation_overrides)
     # Drafts DRAFT_BEST_OF_N independent candidates (default 3) and keeps whichever
     # one measures closest to the real corpus, rather than just the first attempt -
     # request: "I don't care if generation takes a while. As long as it is what I

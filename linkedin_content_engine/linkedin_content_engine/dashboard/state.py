@@ -21,6 +21,14 @@ from linkedin_content_engine.drafting_engine.pipeline import (
     generate_draft_with_research,
 )
 from linkedin_content_engine.drafting_engine.research import ResearchFinding, ResearchResult
+from linkedin_content_engine.drafting_engine.rotation import (
+    AUTO_SENTINEL,
+    FUNNEL_STAGES,
+    HOOK_POSTURES,
+    LENGTH_BUCKETS,
+    MEDIA_PAIRINGS,
+    STRUCTURAL_FORMATS,
+)
 from linkedin_content_engine.email_engine.reminder import PROMPT_POOL
 from linkedin_content_engine.email_engine.settings import get_email_settings, save_email_settings
 from linkedin_content_engine.holidays import holiday_for_date
@@ -43,7 +51,7 @@ from linkedin_content_engine.voice_engine.ingestion import (
     get_weighted_samples_by_register,
     parse_labeled_conversation,
 )
-from linkedin_content_engine.voice_engine.similarity import TARGET_REGISTER, validate_voice_metric
+from linkedin_content_engine.voice_engine.similarity import TARGET_REGISTER, _tokenize, validate_voice_metric
 from linkedin_content_engine.scheduling import (
     WEEKLY_CAP,
     allocate_accepted_posts,
@@ -63,11 +71,43 @@ TOPIC_CATEGORIES = ["ai", "market"]
 CATEGORY_TO_POST_TYPE = {"ai": "ai_commentary", "market": "market_commentary"}
 HISTORY_WEEKS_LIMIT = 6
 
+# Per-queued-topic style dropdowns (request: "add a selection of dropdowns for each
+# one either put it as standard where it decides as normal... or actually choose how
+# I want them to come out"). AUTO_SENTINEL ("auto", not "standard" - see rotation.py
+# for the real collision that would cause) means "let rotation.py pick this field
+# exactly as it always has" - see rotation.py::assign_rotation's `overrides` param.
+QUEUE_FUNNEL_STAGE_OPTIONS = [AUTO_SENTINEL, *FUNNEL_STAGES]
+QUEUE_HOOK_POSTURE_OPTIONS = [AUTO_SENTINEL, *HOOK_POSTURES]
+QUEUE_LENGTH_BUCKET_OPTIONS = [AUTO_SENTINEL, *LENGTH_BUCKETS]
+QUEUE_STRUCTURAL_FORMAT_OPTIONS = [AUTO_SENTINEL, *STRUCTURAL_FORMATS]
+QUEUE_MEDIA_PAIRING_OPTIONS = [AUTO_SENTINEL, *MEDIA_PAIRINGS]
+
 
 def humanize(value: str) -> str:
     """'personal_reflection' -> 'Personal Reflection' - display only, never touches
     the stored value (request: raw snake_case showing up in the UI looked wrong)."""
     return value.replace("_", " ").title() if value else value
+
+
+def _words_present_in(text: str, words: list[str]) -> list[str]:
+    """Real attribution for a sample's expanded view (request: "what information it
+    pulled from each one... like phrasings") - which of the profile's Zeta words
+    actually appear in *this* sample's own text, not a guess or an even split."""
+    if not words:
+        return []
+    tokens = set(_tokenize(text))
+    return [w for w in words if w in tokens]
+
+
+def _bigrams_present_in(text: str, bigrams: list[str]) -> list[str]:
+    """Same idea as _words_present_in, for two-word phrases - checked as a token
+    pair so it matches how compute_characteristic_bigrams itself extracts them,
+    not a raw substring search (which would miss/over-match on punctuation)."""
+    if not bigrams:
+        return []
+    tokens = _tokenize(text)
+    pairs = {f"{a} {b}" for a, b in zip(tokens, tokens[1:])}
+    return [bg for bg in bigrams if bg in pairs]
 
 
 class PostView(pydantic.BaseModel):
@@ -115,6 +155,30 @@ class BankView(pydantic.BaseModel):
     is_selected: bool = False
 
 
+class QueuedDraftView(pydantic.BaseModel):
+    """One topic staged in the batch-draft queue (request: "add it to a box, don't
+    start generating them yet... add a selection of dropdowns for each one either
+    put it as standard... or actually choose how I want them to come out"). Carries
+    its own copy of the bank row's data (captured at queue time, not re-fetched at
+    draft time) plus one dropdown selection per THBM rotation variable - each
+    defaults to AUTO_SENTINEL, meaning rotation.py picks it exactly as it always
+    has; only a non-AUTO_SENTINEL value overrides that field for this one queued
+    item."""
+
+    bank_id: int
+    summary: str
+    source_title: str
+    source_url: str
+    category: str
+    tier_label: str = ""
+    category_label: str = ""
+    funnel_stage: str = AUTO_SENTINEL
+    hook_posture: str = AUTO_SENTINEL
+    length_bucket: str = AUTO_SENTINEL
+    structural_format: str = AUTO_SENTINEL
+    media_pairing: str = AUTO_SENTINEL
+
+
 class ForcedTopicView(pydantic.BaseModel):
     id: int
     topic: str
@@ -133,9 +197,18 @@ class SampleCountView(pydantic.BaseModel):
 class VoiceSampleView(pydantic.BaseModel):
     id: int
     preview: str
+    full_text: str = ""
     source_type_label: str = ""
     date_added_str: str = ""
     question_preview: str = ""
+    # What this specific sample contributes to the profile (request: "click on each
+    # one of the samples and it expands out... what information it pulled from
+    # each one... like phrasings and such") - which of the profile's Zeta words and
+    # characteristic bigrams actually appear in this sample's own text. Real
+    # attribution (a substring/token check against this sample only), not a guess.
+    contributing_zeta_words: list[str] = []
+    contributing_bigrams: list[str] = []
+    is_expanded: bool = False
 
 
 class VoiceConvoPairView(pydantic.BaseModel):
@@ -262,17 +335,26 @@ def _row_to_view(p: Post) -> PostView:
     )
 
 
-def _draft_from_bank_row(bank_id: int, summary: str, source_title: str, source_url: str, category: str) -> None:
-    """Shared by generate_from_bank and fill_week - drafts from one topic bank row and
-    marks it used. Raises on failure so callers can decide how to report it, rather
-    than swallowing the error here."""
+def _draft_from_bank_row(
+    bank_id: int,
+    summary: str,
+    source_title: str,
+    source_url: str,
+    category: str,
+    rotation_overrides: dict[str, str] | None = None,
+) -> None:
+    """Shared by generate_from_bank, fill_week, and the batch-draft queue - drafts
+    from one topic bank row and marks it used. Raises on failure so callers can
+    decide how to report it, rather than swallowing the error here."""
     research = ResearchResult(
         topic=summary,
         status="ok",
         findings=[ResearchFinding(title=source_title, url=source_url, content=summary)],
     )
     post_type = CATEGORY_TO_POST_TYPE.get(category, "ai_commentary")
-    generate_draft_with_research(summary, post_type, research, source_bank_id=bank_id)
+    generate_draft_with_research(
+        summary, post_type, research, source_bank_id=bank_id, rotation_overrides=rotation_overrides
+    )
     with rx.session(url=config.db_url) as session:
         row = session.get(TopicBank, bank_id)
         row.used = True
@@ -286,6 +368,7 @@ class DashboardState(rx.State):
     accepted_posts: list[PostView] = []  # approved + published
     rejected_posts: list[PostView] = []  # last 5 only, per scheduling.REJECTED_KEEP
     bank_rows: list[BankView] = []
+    draft_queue: list[QueuedDraftView] = []
     forced_topics: list[ForcedTopicView] = []
     history_posts: list[PostView] = []
     stats: dict[str, str] = {}
@@ -1140,39 +1223,86 @@ class DashboardState(rx.State):
     def selected_bank_count(self) -> int:
         return sum(1 for row in self.bank_rows if row.is_selected)
 
+    @rx.event
+    def queue_selected_bank_rows(self):
+        """Moves every currently-checked bank row into the draft queue instead of
+        drafting immediately (request: "take each one of the ones I selected to
+        queue into a box, don't start generating them yet"). Skips anything already
+        queued (checking a row twice shouldn't duplicate it) and clears the bank's
+        own checkbox selection afterward, since the row now lives in the queue
+        instead."""
+        already_queued = {item.bank_id for item in self.draft_queue}
+        newly_queued = [
+            QueuedDraftView(
+                bank_id=row.id,
+                summary=row.summary,
+                source_title=row.source_title,
+                source_url=row.source_url,
+                category=row.category,
+                tier_label=row.tier_label,
+                category_label=row.category_label,
+            )
+            for row in self.bank_rows
+            if row.is_selected and row.id not in already_queued
+        ]
+        self.draft_queue = self.draft_queue + newly_queued
+        self.bank_rows = [row.model_copy(update={"is_selected": False}) for row in self.bank_rows]
+
+    @rx.event
+    def remove_from_queue(self, bank_id: int):
+        self.draft_queue = [item for item in self.draft_queue if item.bank_id != bank_id]
+
+    @rx.event
+    def clear_draft_queue(self):
+        self.draft_queue = []
+
+    @rx.event
+    def set_queue_option(self, bank_id: int, field: str, value: str):
+        """Backs all 5 per-queued-topic style dropdowns - one handler bound with a
+        different `field` per dropdown (see topic_bank.py) rather than 5 near-
+        identical setters."""
+        self.draft_queue = [
+            item.model_copy(update={field: value}) if item.bank_id == bank_id else item
+            for item in self.draft_queue
+        ]
+
     @rx.event(background=True)
-    async def generate_from_selected_bank_rows(self):
-        """Draft every currently-checked topic bank row, one after another, reusing
-        the same _draft_from_bank_row helper generate_from_bank/fill_week already
-        share rather than duplicating the research/post-type/mark-used steps. Reports
-        progress as it goes (each `async with self:` exit pushes a real UI update,
-        not just a single message at the end) since drafting several topics back to
-        back - each one its own best-of-N pass - is genuinely slow."""
+    async def generate_queued_drafts(self):
+        """Draft everything currently sitting in the queue, one after another, each
+        with its own per-item rotation overrides (any field left on AUTO_SENTINEL is
+        picked automatically by rotation.py exactly as before). Reuses the same
+        _draft_from_bank_row helper generate_from_bank/fill_week already share.
+        Reports progress as it goes (each `async with self:` exit pushes a real UI
+        update) since drafting several topics back to back - each one its own
+        best-of-N pass - is genuinely slow."""
         async with self:
-            selected_ids = [row.id for row in self.bank_rows if row.is_selected]
-            if not selected_ids:
+            queued = list(self.draft_queue)
+            if not queued:
                 return
             self.is_busy = True
 
         succeeded = 0
         failed = 0
-        for i, bank_id in enumerate(selected_ids, start=1):
+        for i, item in enumerate(queued, start=1):
             async with self:
-                self.status_message = f"Drafting {i} of {len(selected_ids)} selected topics..."
+                self.status_message = f"Drafting {i} of {len(queued)} queued topics..."
 
-            with rx.session(url=config.db_url) as session:
-                bank_row = session.get(TopicBank, bank_id)
-                if bank_row is None:
-                    failed += 1
-                    continue
-                summary, source_title, source_url, category = (
-                    bank_row.summary,
-                    bank_row.source_title,
-                    bank_row.source_url,
-                    bank_row.category,
-                )
+            overrides = {
+                "funnel_stage": item.funnel_stage,
+                "hook_posture": item.hook_posture,
+                "length_bucket": item.length_bucket,
+                "structural_format": item.structural_format,
+                "media_pairing": item.media_pairing,
+            }
             try:
-                _draft_from_bank_row(bank_id, summary, source_title, source_url, category)
+                _draft_from_bank_row(
+                    item.bank_id,
+                    item.summary,
+                    item.source_title,
+                    item.source_url,
+                    item.category,
+                    rotation_overrides=overrides,
+                )
                 succeeded += 1
             except Exception:  # noqa: BLE001 - one failure shouldn't stop the rest of the queue
                 failed += 1
@@ -1180,7 +1310,8 @@ class DashboardState(rx.State):
         async with self:
             self.is_busy = False
             failure_note = f" ({failed} failed)" if failed else ""
-            self.status_message = f"Drafted {succeeded} of {len(selected_ids)} selected topics{failure_note}."
+            self.status_message = f"Drafted {succeeded} of {len(queued)} queued topics{failure_note}."
+            self.draft_queue = []
             self._reload_posts()
             self._reload_bank()
             self._reload_stats()
@@ -1494,13 +1625,47 @@ class DashboardState(rx.State):
             profile = session.exec(
                 sqlmodel.select(VoiceProfile).order_by(sqlmodel.col(VoiceProfile.generated_at).desc())
             ).first()
+
+        if profile is None:
+            self.voice_profile_status = "no profile generated yet"
+            zeta_words: list[str] = []
+            bigrams: list[str] = []
+            self.voice_zeta_words = []
+            self.voice_characteristic_bigrams = []
+            self.voice_syntax_summary = ""
+        else:
+            self.voice_profile_status = (
+                f"generated {profile.generated_at.strftime('%d %b %Y')} from {len(samples)} current sample(s)"
+            )
+            profile_data = json.loads(profile.profile_json)
+            zeta_words = profile_data.get("zeta_words", [])
+            bigrams = profile_data.get("characteristic_bigrams", [])
+            self.voice_zeta_words = zeta_words
+            self.voice_characteristic_bigrams = bigrams
+            syntax = profile_data.get("syntax", {})
+            if syntax.get("status") == "ok":
+                self.voice_syntax_summary = (
+                    f"~{syntax['avg_nouns_per_post']:.0f} nouns, {syntax['avg_verbs_per_post']:.0f} verbs, "
+                    f"{syntax['avg_adjectives_per_post']:.0f} adjectives per post on average - "
+                    f"{syntax['pct_passive_sentences']:.0f}% of sentences are passive voice."
+                )
+            else:
+                self.voice_syntax_summary = ""
+        self.voice_health_rows = []
+        self.voice_health_checked = False
+
+        previously_expanded = {v.id for v in self.voice_samples if v.is_expanded}
         self.voice_samples = [
             VoiceSampleView(
                 id=s.id,
                 preview=(s.raw_text[:180] + "...") if len(s.raw_text) > 180 else s.raw_text,
+                full_text=s.raw_text,
                 source_type_label=humanize(s.source_type),
                 date_added_str=s.date_added.strftime("%d %b %Y"),
                 question_preview=s.question or "",
+                contributing_zeta_words=_words_present_in(s.raw_text, zeta_words),
+                contributing_bigrams=_bigrams_present_in(s.raw_text, bigrams),
+                is_expanded=s.id in previously_expanded,
             )
             for s in samples
         ]
@@ -1511,30 +1676,13 @@ class DashboardState(rx.State):
             SampleCountView(source_type_label=humanize(source_type), count=count)
             for source_type, count in sorted(counts.items(), key=lambda kv: -kv[1])
         ]
-        if profile is None:
-            self.voice_profile_status = "no profile generated yet"
-            self.voice_zeta_words = []
-            self.voice_characteristic_bigrams = []
-            self.voice_syntax_summary = ""
-        self.voice_health_rows = []
-        self.voice_health_checked = False
-        if profile is not None:
-            self.voice_profile_status = (
-                f"generated {profile.generated_at.strftime('%d %b %Y')} from "
-                f"{len(self.voice_samples)} current sample(s)"
-            )
-            profile_data = json.loads(profile.profile_json)
-            self.voice_zeta_words = profile_data.get("zeta_words", [])
-            self.voice_characteristic_bigrams = profile_data.get("characteristic_bigrams", [])
-            syntax = profile_data.get("syntax", {})
-            if syntax.get("status") == "ok":
-                self.voice_syntax_summary = (
-                    f"~{syntax['avg_nouns_per_post']:.0f} nouns, {syntax['avg_verbs_per_post']:.0f} verbs, "
-                    f"{syntax['avg_adjectives_per_post']:.0f} adjectives per post on average - "
-                    f"{syntax['pct_passive_sentences']:.0f}% of sentences are passive voice."
-                )
-            else:
-                self.voice_syntax_summary = ""
+
+    @rx.event
+    def toggle_sample_expanded(self, sample_id: int):
+        self.voice_samples = [
+            v.model_copy(update={"is_expanded": not v.is_expanded}) if v.id == sample_id else v
+            for v in self.voice_samples
+        ]
 
     @rx.event
     def check_voice_corpus_health(self):
