@@ -1,42 +1,45 @@
 /* ============================================
-   DESIGN TOKENS - warm dark editorial palette, serif+sans pairing.
-   Source: design-reference.html / UI-OVERHAUL.md at the repo root. Two accents, two
-   jobs, never swapped: gold shows information (stat numbers, focus rings), terracotta
-   triggers an action (primary buttons, active nav, today's date on the calendar).
+   DESIGN TOKENS - Baroni Applied Intelligence light theme (Paper/Ink/Gold), adapted
+   from the brand's own brand-tokens.css (source: Website redesign improvements/
+   branding/ at the repo owner's Downloads - Brand Guidelines.dc.html §03/04/05).
+   One gold accent, two jobs by size per the brand's own contrast rule: Gold (#9A7437)
+   for large display type (28px+), Gold deep (#7D5C2A) for everything smaller -
+   buttons, borders, focus rings, links. Square corners everywhere, no exceptions.
    ============================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@500&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap');
 
 :root {
-  --bg: #14110F;
-  --bg-surface: #1C1815;     /* card background */
-  --bg-surface-2: #221D19;   /* input backgrounds */
-  --border: #2E2822;
-  --border-strong: #3D362E;
-  --text: #F2EDE4;
-  --text-muted: #8C8479;
-  --accent-gold: #C9A66B;         /* data only */
-  --accent-terracotta: #BF6E4E;   /* actions only */
-  --accent-terracotta-hover: #A85D3F;
+  --bg: #F6F2E9;             /* Paper */
+  --bg-surface: #FFFFFF;     /* card background */
+  --bg-surface-2: #ECE6D8;   /* Paper deep - input backgrounds, panels */
+  --border: #D8D0BF;         /* Rule */
+  --border-strong: #BFB5A0;
+  --text: #1B1F1A;           /* Ink */
+  --text-muted: #4D4C43;     /* Ink soft */
+  --accent-gold: #9A7437;         /* large display type only (28px+), per brand contrast rule */
+  --accent-terracotta: #7D5C2A;   /* Gold deep - actions/buttons/links/borders (everything under 28px) */
+  --accent-terracotta-hover: #6B4A1F;
 
-  /* Status pill colors: muted background + soft (not saturated) text - status
-     semantics (drafted/approved/published/rejected), not part of the gold/terracotta
-     information/action pair above. */
-  --status-drafted-bg: rgba(140, 132, 121, 0.16);
-  --status-drafted-text: #F2EDE4;
-  --status-approved-bg: rgba(139, 154, 108, 0.18);
-  --status-approved-text: #C3D19E;
-  --status-published-bg: rgba(58, 140, 140, 0.18);
-  --status-published-text: #86D9D9;
-  --status-rejected-bg: rgba(180, 70, 60, 0.16);
-  --status-rejected-text: #E3A79C;
+  /* Status pill colors, recalibrated for a light background - tinted fills with
+     dark-enough text for real contrast, not the translucent-on-dark overlays the
+     old palette used. Approved/rejected reuse the brand doc's own USE/AVOID hues
+     (§05 Voice) for semantic consistency: sage deep = good, warm red = avoid. */
+  --status-drafted-bg: rgba(77, 76, 67, 0.10);
+  --status-drafted-text: #4D4C43;
+  --status-approved-bg: rgba(63, 107, 76, 0.12);
+  --status-approved-text: #3F6B4C;
+  --status-published-bg: rgba(43, 110, 110, 0.12);
+  --status-published-text: #2B6E6E;
+  --status-rejected-bg: rgba(138, 59, 42, 0.12);
+  --status-rejected-text: #8A3B2A;
 
-  --font-display: 'Fraunces', serif;
-  --font-body: 'Inter', system-ui, sans-serif;
-  --font-mono: 'IBM Plex Mono', monospace;
+  --font-display: 'Newsreader', Georgia, serif;
+  --font-body: 'Geist', Arial, sans-serif;
+  --font-mono: 'Geist Mono', Consolas, monospace;
 
-  --radius: 8px;      /* buttons, inputs */
-  --radius-lg: 12px;  /* cards, empty states */
+  --radius: 0;        /* square corners everywhere, per brand rule */
+  --radius-lg: 0;
   --pad: 1.5rem;      /* 24px - default card padding */
   --pad-lg: 2.5rem;   /* 40px - Home's main content card */
   --space: 0.5rem;    /* 8px base spacing unit */
@@ -45,9 +48,9 @@
 /* Map our tokens onto Radix Themes' own variables so every rx.* component
    (card, button, badge, select, etc.) picks up the palette without needing
    per-component overrides. Also remaps the "bronze" color_scheme used explicitly
-   throughout the dashboard (PRIMARY_CTA/SECONDARY_CTA and friends) to the real
-   terracotta hex, and the default/unscoped accent to the same - "action" is the more
-   common default use when no color_scheme is set at all. */
+   throughout the dashboard (PRIMARY_CTA/SECONDARY_CTA and friends) to Gold deep -
+   kept the variable/scheme names as-is rather than renaming everywhere the Python
+   side references them, same trick used for the original terracotta remap. */
 .radix-themes {
   --color-background: var(--bg) !important;
   --color-panel-solid: var(--bg-surface) !important;
@@ -72,10 +75,10 @@
 
   --bronze-1: var(--bg) !important;
   --bronze-2: var(--bg-surface) !important;
-  --bronze-3: rgba(191, 110, 78, 0.12) !important;
-  --bronze-4: rgba(191, 110, 78, 0.18) !important;
-  --bronze-5: rgba(191, 110, 78, 0.24) !important;
-  --bronze-6: rgba(191, 110, 78, 0.32) !important;
+  --bronze-3: rgba(125, 92, 42, 0.08) !important;
+  --bronze-4: rgba(125, 92, 42, 0.14) !important;
+  --bronze-5: rgba(125, 92, 42, 0.20) !important;
+  --bronze-6: rgba(125, 92, 42, 0.28) !important;
   --bronze-7: var(--border-strong) !important;
   --bronze-8: var(--accent-terracotta) !important;
   --bronze-9: var(--accent-terracotta) !important;
@@ -98,6 +101,13 @@ body {
   line-height: 1.6;
 }
 
+a {
+  color: var(--accent-terracotta);
+}
+a:hover {
+  color: var(--text);
+}
+
 /* Readability: draft/compliance text areas are the thing you read and edit most -
    make sure they're never smaller/tighter than comfortable body text. */
 .rt-TextAreaInput textarea,
@@ -118,6 +128,15 @@ h1, h2, h3, h4, h5, h6,
 
 code, .rt-Code, .hud-mono {
   font-family: var(--font-mono) !important;
+}
+
+/* Section/meta labels in the brand's mono-uppercase-tracked style (Brand Guidelines
+   §04: "Labels, meta, numbers... UPPERCASE, tracked +0.1-0.14em"). */
+.hud-label {
+  font-family: var(--font-mono) !important;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--accent-terracotta);
 }
 
 .rt-Card {
@@ -156,8 +175,8 @@ code, .rt-Code, .hud-mono {
   color: var(--text-muted) !important;
 }
 
-/* Inputs/selects/textareas: dark surface-2 fields, room to grow vertically instead
-   of clipping. */
+/* Inputs/selects/textareas: paper-deep fields, room to grow vertically instead of
+   clipping. */
 .rt-TextFieldRoot,
 .rt-TextAreaInput,
 .rt-SelectTrigger {
@@ -175,7 +194,7 @@ code, .rt-Code, .hud-mono {
 }
 
 :focus-visible {
-  outline-color: var(--accent-gold) !important;
+  outline-color: var(--accent-terracotta) !important;
 }
 
 /* Status pills */
@@ -194,7 +213,9 @@ code, .rt-Code, .hud-mono {
 .hud-pill-published { background: var(--status-published-bg); color: var(--status-published-text); }
 .hud-pill-rejected { background: var(--status-rejected-bg); color: var(--status-rejected-text); }
 
-/* Stat numbers: prominent bold display size, gold (data, not action) */
+/* Stat numbers: prominent bold display size - the brand's own contrast rule says
+   Gold (not Gold deep) is only for type 28px and up, so the large stat value alone
+   qualifies; the smaller one uses Gold deep to stay readable on Paper. */
 .hud-stat-value {
   font-size: 2rem;
   font-weight: 700;
@@ -205,7 +226,7 @@ code, .rt-Code, .hud-mono {
 .hud-stat-value-small {
   font-size: 1.375rem;
   font-weight: 700;
-  color: var(--accent-gold);
+  color: var(--accent-terracotta);
   font-family: var(--font-body);
   line-height: 1.1;
 }
@@ -239,8 +260,8 @@ code, .rt-Code, .hud-mono {
 }
 
 ::selection {
-  background: var(--accent-terracotta);
-  color: var(--bg);
+  background: var(--accent-gold);
+  color: #ffffff;
 }
 
 ::-webkit-scrollbar {
@@ -248,7 +269,7 @@ code, .rt-Code, .hud-mono {
   height: 10px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--bg-surface);
+  background: var(--bg-surface-2);
 }
 ::-webkit-scrollbar-thumb {
   background: var(--border-strong);

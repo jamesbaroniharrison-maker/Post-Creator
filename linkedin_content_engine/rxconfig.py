@@ -12,7 +12,7 @@ config = rx.Config(
         rx.plugins.SitemapPlugin(),
         rx.plugins.TailwindV4Plugin(),
         rx.plugins.RadixThemesPlugin(
-            theme=rx.theme(appearance="dark", accent_color="grass", gray_color="olive", radius="medium"),
+            theme=rx.theme(appearance="light", accent_color="grass", gray_color="olive", radius="none"),
         ),
     ]
 )

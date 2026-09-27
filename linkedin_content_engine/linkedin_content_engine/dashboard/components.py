@@ -615,10 +615,17 @@ def page_shell(active: str, *children) -> rx.Component:
     return rx.box(
         rx.container(
             rx.hstack(
-                rx.vstack(
-                    rx.heading("Content Engine", size="6"),
-                    rx.text("Review queue, research, and voice-matched drafting", size="2", class_name="hud-muted"),
-                    spacing="0",
+                rx.hstack(
+                    rx.image(src="/logos/baroni-mark-sm-light.svg", width="34px", height="34px", flex_shrink="0"),
+                    rx.vstack(
+                        rx.heading("Content Engine", size="6"),
+                        rx.text(
+                            "Review queue, research, and voice-matched drafting", size="2", class_name="hud-muted"
+                        ),
+                        spacing="0",
+                    ),
+                    spacing="3",
+                    align="center",
                 ),
                 rx.spacer(),
                 rx.button(

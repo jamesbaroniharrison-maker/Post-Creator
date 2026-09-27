@@ -21,7 +21,12 @@ from .dashboard.pages.statistics import statistics_page
 from .dashboard.pages.topic_bank import topic_bank_page
 from .dashboard.pages.voice import voice_page
 
-app = rx.App(stylesheets=["/design_tokens.css"])
+# Baroni sunflower mark as the browser-tab favicon, replacing Reflex's default -
+# rx.App has no dedicated favicon param in this version, so it's a plain head <link>.
+app = rx.App(
+    stylesheets=["/design_tokens.css"],
+    head_components=[rx.el.link(rel="icon", href="/logos/baroni-favicon.svg", type="image/svg+xml")],
+)
 app.add_page(home_page, route="/")
 app.add_page(review_page, route="/review")
 app.add_page(accepted_page, route="/accepted")

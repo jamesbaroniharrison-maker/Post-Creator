@@ -1289,3 +1289,54 @@ above is the honest alternative: it solves the actual reported symptom (structur
 sameness) without needing any new data, real or synthetic - the standing
 recommendation for the corpus itself is still just more of James's own real
 LinkedIn posts, particularly since that register still only has 2 samples.
+
+## Re-themed to the Baroni Applied Intelligence light brand (27 Sept 2026)
+
+Request: adapt the light theme from a separate real brand-guidelines project
+(`Website redesign improvements/branding/` in James's Downloads - Brand
+Guidelines.dc.html, brand-tokens.css, and a `logos/` folder of real exported
+assets) into this dashboard. Confirmed via `AskUserQuestion` which of three
+plausible targets was meant (the dashboard itself, a new document, or something
+else) before touching anything - re-theming an entire live app's palette is
+consequential enough to be worth one clarifying question rather than a guess.
+
+**Palette swap, not a redesign**: the dark mossy-green/bronze palette (`assets/
+design_tokens.css`) is now the brand's actual light theme values, taken directly
+from `brand-tokens.css`'s `[data-theme="light"]` block rather than eyeballed from
+the screenshots - Paper `#F6F2E9` background, white `#FFFFFF` cards, Paper-deep
+`#ECE6D8` inputs/panels, Ink `#1B1F1A` text, Rule `#D8D0BF` hairlines. Two gold
+values kept distinct per the brand doc's own contrast rule ("Gold is for dark
+backgrounds only... on light backgrounds use Gold deep for anything smaller"
+adapted to: Gold `#9A7437` for large display type 28px+, Gold deep `#7D5C2A` for
+everything smaller - buttons, borders, focus rings, links): `--accent-gold` and
+`--accent-terracotta` (the existing variable names, kept as-is rather than
+renamed, so no Python file needed touching - `PRIMARY_CTA`/`SECONDARY_CTA`'s
+`color_scheme="bronze"` still works unchanged, just repointed by the CSS remap
+like the original dark-theme trick). Status pill colors recalculated for light-
+background contrast rather than reused as translucent-on-dark overlays;
+approved/rejected reuse the brand doc's own USE/AVOID hues (sage deep / a warm
+red) for semantic consistency with the rest of the brand.
+
+**Typography**: Newsreader (headings), Geist (body), Geist Mono (uppercase
+tracked labels) replace Fraunces/Inter/IBM Plex Mono, pulled from the same
+`brand-tokens.css` font-face URL. `--radius`/`--radius-lg` set to `0` - the
+brand's own explicit rule ("square corners everywhere") - and `rxconfig.py`'s
+`rx.theme(appearance=...)` flipped from `"dark"` to `"light"` (`radius="none"`
+too) to match.
+
+**Logo**: found the real exported asset files at `Website redesign
+improvements/branding/logos/` (the pasted chat images aren't directly readable
+as files - located the actual PNGs/SVGs on disk instead of guessing from the
+screenshots). Copied `baroni-mark-sm-light.svg` (header icon, next to "Content
+Engine" in `page_shell`), `baroni-lockup-horizontal-on-light.png`, and
+`baroni-favicon.svg` into a new `assets/logos/` folder. Favicon wired via
+`rx.App(head_components=[rx.el.link(rel="icon", ...)])` - this Reflex version's
+`rx.App` has no dedicated favicon param, confirmed via `inspect.signature`.
+
+Verified live via real logged-in Playwright screenshots across Home, Topic Bank,
+Voice, Settings, and the login page (which inherits the theme without going
+through `page_shell`) - correct palette, fonts, square corners, and logo
+rendering everywhere. Caught and fixed one real gap this way: the login page's
+"Register" link rendered in Radix's default green because `design_tokens.css`
+never defined a global `a { color }` rule - added one matching the brand doc's
+own (`a { color: var(--accent-terracotta) }`, hover to `var(--text)`).
