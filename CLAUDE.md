@@ -160,8 +160,11 @@ matching module:
 - Email reminders (`email_engine/`) are fully day+time configurable from the dashboard,
   degrade to a clean "skipped, not configured" when SMTP credentials are blank, and
   check whether a personal post already exists this week before nudging.
-- Design system: dark mossy-green/bronze palette in `assets/design_tokens.css`,
-  Fraunces headings / Inter body / IBM Plex Mono labels, forced dark theme.
+- Design system: Baroni Applied Intelligence light brand in `assets/design_tokens.css`
+  (source of truth: `D:\Work\! Branding\BRAND.md`), Newsreader / Geist / Geist Mono,
+  square corners. Never put top/bottom padding on Radix text fields or select
+  triggers - they're fixed-height and it clips the text (happened once across all
+  pages; BRAND.md §6 "Form controls").
 - `drafting_engine/persona.py` holds a hand-authored voice/lexicon seed and
   `drafting_engine/context/about_me.md` (loaded via `draft.py`'s `_load_about_me()`)
   holds real biographical facts (career/education/projects) - both are permanent
