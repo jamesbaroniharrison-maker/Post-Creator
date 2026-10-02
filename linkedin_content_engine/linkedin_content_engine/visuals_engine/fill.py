@@ -161,6 +161,7 @@ def make_visual(
     photo: str = "",
     template_key: str | None = None,
     recent_templates: set[str] | None = None,
+    dark: bool | None = None,
 ) -> dict:
     """Fill and render one visual for a post.
 
@@ -172,7 +173,7 @@ def make_visual(
     if template_key:
         candidates = [template_key]
     else:
-        candidates = candidate_templates(media_pairing, has_photo, recent_templates)
+        candidates = candidate_templates(media_pairing, has_photo, recent_templates, dark)
     source_all = f"{post_text}\n{source_text}"
 
     key, slots, problems = _fill(candidates, post_text, source_all)

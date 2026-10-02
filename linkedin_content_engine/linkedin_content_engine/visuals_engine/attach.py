@@ -1,6 +1,7 @@
 """Makes (or re-makes) the brand visual for a saved post and records it on the row."""
 
 import json
+import random
 import pathlib
 
 import reflex as rx
@@ -9,6 +10,21 @@ import sqlmodel
 from rxconfig import config
 from linkedin_content_engine.models import Post, TopicBank
 from linkedin_content_engine.visuals_engine.fill import make_visual
+from linkedin_content_engine.visuals_engine.spec import is_dark
+
+
+DARK_SHARE = 1 / 3  # request: dark visuals "1 in 3, rough average"
+
+
+def pick_dark(recent_templates: list[str]) -> bool:
+    """About 1 in 3 visuals dark. Random, but never two dark in a row and never more
+    than three light in a row, so it stays near the average even over a short run."""
+    flags = [is_dark(t) for t in recent_templates]  # newest first
+    if flags[:1] == [True]:
+        return False
+    if len(flags) >= 3 and not any(flags[:3]):
+        return True
+    return random.random() < DARK_SHARE
 
 
 def visuals_dir(post_id: int) -> pathlib.Path:
@@ -40,16 +56,18 @@ def make_visual_for_post(post_id: int, template_key: str | None = None, force: b
             media_pairing = "candid_photo"  # your own photo beats whatever the rotation picked
         # Templates on the last 3 posts that had a visual - rotated out so the feed
         # doesn't show the same layout twice in a row.
-        recent = set(session.exec(
+        recent_list = list(session.exec(
             sqlmodel.select(Post.visual_template)
             .where(Post.id != post_id, Post.visual_template != None)  # noqa: E711
             .order_by(sqlmodel.col(Post.created_at).desc())
             .limit(3)
         ).all())
+        recent = set(recent_list)
+        dark = pick_dark(recent_list)
 
     try:
         result = make_visual(post_text, source_text, media_pairing, visuals_dir(post_id), photo=photo,
-                             template_key=template_key, recent_templates=recent)
+                             template_key=template_key, recent_templates=recent, dark=dark)
         fields = {
             "visual_template": result["template"],
             "visual_slots": json.dumps(result["slots"]),

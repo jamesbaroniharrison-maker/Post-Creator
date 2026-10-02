@@ -1430,5 +1430,15 @@ once `register_scheduled_task.ps1` has been re-run elevated (still pending from 
   is offered automatically wherever its base template is, with no changes to
   `PAIRING_TEMPLATES`. New layouts from Claude Design slot in as new `CATALOG` entries
   plus a `templates/<key>.html.j2`.
-- Brand note: posts stay on the light theme (BRAND.md §7: at most one Forest block),
-  so variants are new compositions, not dark versions.
+- **Dark visuals, about 1 in 3** (`attach.py::pick_dark`, `DARK_SHARE`): random, but
+  never two dark in a row and never four light in a row - simulated over 30,000 picks:
+  32% dark. Dark templates are any `CATALOG` key ending `_dark` with `variant_of` set to
+  its light version. `spec._root()` follows chains (`statement_b_dark` -> `statement_b`
+  -> `statement`). If no dark version exists for a pairing yet, it falls back to light,
+  so this changes nothing until the Claude Design dark set is converted. BRAND.md §7
+  updated to allow dark posts (it previously said light only).
+- **Pending, waiting on James**: Claude Design is making 16 new designs (6 alternate
+  layouts, 7 new single types, 3 new carousels), plus dark versions of those and the
+  existing 10. Converting each one means a `templates/<key>.html.j2`, a `CATALOG` entry
+  (slot model, word limits, `when`, `variant_of`), any new types added to
+  `PAIRING_TEMPLATES`, and a render check at maximum text length.

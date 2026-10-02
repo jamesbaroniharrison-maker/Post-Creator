@@ -281,12 +281,33 @@ PAIRING_TEMPLATES: dict[str, list[str]] = {
 }
 
 
-def candidate_templates(media_pairing: str | None, has_photo: bool, recent: set[str] | None = None) -> list[str]:
-    """Templates that suit the pairing (plus any layout variants of them), minus any
-    used on the last few posts - so the same look doesn't come round twice running.
-    The recent ones only drop out if something else is left."""
+def _root(key: str) -> str:
+    """The original template a variant descends from (statement_b_dark -> statement)."""
+    seen = set()
+    while CATALOG.get(key) and CATALOG[key].variant_of and key not in seen:
+        seen.add(key)
+        key = CATALOG[key].variant_of
+    return key
+
+
+def is_dark(key: str) -> bool:
+    return key.endswith("_dark")
+
+
+def candidate_templates(
+    media_pairing: str | None,
+    has_photo: bool,
+    recent: set[str] | None = None,
+    dark: bool | None = None,
+) -> list[str]:
+    """Templates that suit the pairing (plus any layout/dark variants of them), minus
+    any used on the last few posts - so the same look doesn't come round twice running.
+    `dark` picks the light or dark set (None = either). Each filter only applies if
+    something is left after it, so a missing dark version falls back to light."""
     base = PAIRING_TEMPLATES.get(media_pairing or "", list(CATALOG))
-    keys = [k for k in base if k in CATALOG] + [k for k in CATALOG if CATALOG[k].variant_of in base]
+    keys = [k for k in base if k in CATALOG] + [k for k in CATALOG if k not in base and _root(k) in base]
     keys = [k for k in keys if has_photo or not CATALOG[k].needs_photo] or ["statement"]
+    if dark is not None:
+        keys = [k for k in keys if is_dark(k) == dark] or keys
     fresh = [k for k in keys if k not in (recent or set())]
     return fresh or keys
