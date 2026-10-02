@@ -1442,3 +1442,22 @@ once `register_scheduled_task.ps1` has been re-run elevated (still pending from 
   existing 10. Converting each one means a `templates/<key>.html.j2`, a `CATALOG` entry
   (slot model, word limits, `when`, `variant_of`), any new types added to
   `PAIRING_TEMPLATES`, and a render check at maximum text length.
+
+## Scrub keeps names; Ben Holmes app moved to its own ports (2 Oct 2026)
+
+- **Privacy scrub keeps names** (request: "the scrub leave names"). `SCRUB_KEEP_NAMES`
+  (default on) swaps in `_KEEP_NAMES_SCRUB_PROMPT`/`_KEEP_NAMES_VERIFY_PROMPT` and a
+  matching drafting rule 6 (`privacy_rule` in the main template). Names of people,
+  organisations and places in your own notes stay as written. It still removes an
+  exact money figure tied to a private person (the regex layer is unchanged) and
+  contact details / street addresses. `tags` still only @mention public organisations
+  or figures. `SCRUB_KEEP_NAMES=0` restores the old full generalisation. Live test
+  (Ollama, run twice): "Sarah Mitchell from Deloitte in Manchester" kept, "£12,450"
+  became "a significant amount", the phone number was removed, verified clean.
+- **Ben Holmes app** (`D:\Work\AI Projects\Ben Holmes-WPA\Post-Creator`) now uses fixed
+  ports 3001 (frontend) / 8200 (backend) in its `rxconfig.py`, launcher and docs, so it
+  no longer fights this app for 3000/8000. Its launcher also used to kill whatever held
+  3000/8000, i.e. this app. 8100 was the first choice, but a ghost listener (process
+  gone, socket still held) was sitting on it. Ghost listeners on 8000-8005 are also why
+  this app's backend keeps landing on 8006 - a reboot clears them. Verified both apps
+  running at once: 3000 and 3001 both return 200, and both backends answer /ping.

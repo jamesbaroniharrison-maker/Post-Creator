@@ -131,6 +131,56 @@ to just trying something has dropped a lot."}
 ---
 """
 
+# Request: "the scrub leave names". With SCRUB_KEEP_NAMES on (the default), names of
+# people, organisations and places in your own notes are kept as written - you decide
+# who you name when you review. The scrub still removes what nobody needs in a post:
+# an exact money figure tied to a private person, and contact details / a street
+# address. Set SCRUB_KEEP_NAMES=0 in .env to go back to generalising names too.
+_KEEP_NAMES_VERIFY_PROMPT = """You are a privacy checker, not a writer. Names of people, \
+organisations and places are ALLOWED and must not be flagged. Check ONLY for these \
+things still being present:
+1. An exact monetary figure tied to a private person (salary, debt, claim, bill)
+2. Contact details or a precise address: a phone number, email address, or street \
+address / house number
+
+Respond with strict JSON only, no markdown fences: \
+{"still_identifying": true or false, "what": "brief reason, or empty string"}"""
+
+_KEEP_NAMES_SCRUB_PROMPT = """You tidy raw personal notes before they are used to draft a \
+LinkedIn post. You do NOT write a post - you only return the note itself.
+
+KEEP EVERY NAME EXACTLY AS WRITTEN: people, companies, organisations, universities, \
+towns, workplaces. The author has chosen to name them.
+
+Only two things change:
+1. An exact money figure tied to a private person (their salary, debt, bill, claim) \
+becomes an approximate scale ("a few thousand pounds", "a significant amount").
+2. Contact details or a precise address (phone number, email, street address) are \
+removed.
+
+MOST NOTES HAVE NOTHING TO CHANGE - return them character for character. Never add, \
+invent or generalise anything else.
+
+Respond with strict JSON only, no markdown fences: {"scrubbed_note": "..."}
+
+---
+WORKED EXAMPLE (different domain, so you cannot copy it):
+
+Input note: "Spent an hour on a call with Graham Fielding from our Leeds office today - \
+his team's project, worth £8,200 in saved contractor time, finally shipped. Call him on \
+07700 900123 if you want the details."
+
+Correct output: {"scrubbed_note": "Spent an hour on a call with Graham Fielding from our \
+Leeds office today - his team's project, worth several thousand pounds in saved \
+contractor time, finally shipped."}
+---
+"""
+
+
+def _keep_names() -> bool:
+    return os.environ.get("SCRUB_KEEP_NAMES", "1") != "0"
+
+
 _AUDIT_SYSTEM_PROMPT = """You are a strict editor, not a writer. Check the LinkedIn post \
 below against the gates from a fixed content framework. Respond with strict JSON only, \
 no markdown fences: {"passes": true or false, "problem": "brief description of what \
@@ -292,10 +342,7 @@ observation instead.
 The persona above is explicitly allergic to this kind of phrasing - if a sentence \
 sounds like generic LinkedIn-influencer copy, rewrite it plainer.
 5. Do not mention that you are an AI or that this is a draft, inside "text".
-6. PRIVACY - if this topic is the author's own raw personal/work note (not \
-research-backed), never name a real private third party (a colleague, classmate, \
-friend), a specific workplace/school detail that could identify them, or an exact \
-figure tied to them. Generalise these while keeping the substance of the story.
+6. PRIVACY - {privacy_rule}
 7. "tags" must only contain real public organisations or public figures meant as an \
 @mention - never a private individual's name, even anonymised.
 8. "compliance_note" must flag anything worth double-checking before approving (an \
@@ -399,7 +446,8 @@ def _chat(system_prompt: str, user_content: str) -> str:
 
 def _run_scrub_call(note: str) -> str | None:
     try:
-        content = _ollama_chat(_SCRUB_SYSTEM_PROMPT, f"Note to rewrite: {note}")
+        prompt = _KEEP_NAMES_SCRUB_PROMPT if _keep_names() else _SCRUB_SYSTEM_PROMPT
+        content = _ollama_chat(prompt, f"Note to rewrite: {note}")
         return json.loads(content).get("scrubbed_note") or None
     except Exception:
         return None
@@ -411,7 +459,8 @@ def _still_identifying(text: str) -> bool:
     getting the original rewrite right in one pass. Fails safe: if the check itself
     errors, treat it as still-identifying so the caller's fallback path is used."""
     try:
-        content = _ollama_chat(_VERIFY_SYSTEM_PROMPT, f"Text to check: {text}")
+        prompt = _KEEP_NAMES_VERIFY_PROMPT if _keep_names() else _VERIFY_SYSTEM_PROMPT
+        content = _ollama_chat(prompt, f"Text to check: {text}")
         return bool(json.loads(content).get("still_identifying", True))
     except Exception:
         return True
@@ -498,8 +547,10 @@ def _scrub_note(note: str) -> tuple[str, bool]:
         return scrubbed, True
 
     retry_note = (
-        f"{note}\n\n(A first attempt at rewriting this still left identifying details "
-        "in - a specific name, place, or exact figure. Be more thorough this time.)"
+        f"{note}\n\n(A first attempt at rewriting this still left something in - "
+        + ("an exact money figure or contact details. Keep all names."
+           if _keep_names() else "a specific name, place, or exact figure.")
+        + " Be more thorough this time.)"
     )
     retried = _run_scrub_call(retry_note) or scrubbed
     retried = _redact_money(retried)
@@ -672,6 +723,17 @@ def draft_post(
         length_guidance=_LENGTH_GUIDANCE[length_bucket],
         structural_format=structural_format,
         format_guidance=_FORMAT_GUIDANCE[structural_format],
+        privacy_rule=(
+            "if this topic is the author's own raw personal/work note (not research-backed), "
+            "keep any names of people, organisations and places exactly as the note gives them "
+            "- the author chose to name them. Never include contact details or an exact money "
+            "figure tied to a private person."
+            if _keep_names() else
+            "if this topic is the author's own raw personal/work note (not research-backed), "
+            "never name a real private third party (a colleague, classmate, friend), a specific "
+            "workplace/school detail that could identify them, or an exact figure tied to them. "
+            "Generalise these while keeping the substance of the story."
+        ),
         media_pairing=media_pairing,
     )
 
@@ -717,8 +779,10 @@ def draft_post(
     if not research.findings and not scrub_verified:
         draft.compliance_note = (
             "PII CHECK FAILED - this post was drafted from your own note, and the "
-            "automatic privacy check could not confirm identifying details (a name, "
-            "place, or exact figure) were fully removed. Read the text carefully "
+            "automatic privacy check could not confirm "
+            + ("contact details or an exact money figure were" if _keep_names()
+               else "identifying details (a name, place, or exact figure) were")
+            + " fully removed. Read the text carefully "
             "before accepting."
         )
 
