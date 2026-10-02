@@ -46,7 +46,7 @@ def generate_draft_with_research(
     letting assign_rotation pick them - anything left unset stays fully automatic.
     """
     voice_profile = load_voice_profile()
-    rotation = assign_rotation(overrides=rotation_overrides)
+    rotation = assign_rotation(overrides=rotation_overrides, post_type=post_type, has_photo=bool(source_photo))
     # Drafts DRAFT_BEST_OF_N independent candidates (default 3) and keeps whichever
     # one measures closest to the real corpus, rather than just the first attempt -
     # request: "I don't care if generation takes a while. As long as it is what I

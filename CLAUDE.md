@@ -1415,3 +1415,20 @@ James's address. A logged-in browser check confirmed thumbnails load (naturalWid
 Note: the Saturday auto-prepare adds roughly 10-25 min to that day's 7am job
 (best-of-3 drafts + visuals). The 90-minute `ExecutionTimeLimit` covers it, but only
 once `register_scheduled_task.ps1` has been re-run elevated (still pending from 3 Sept).
+
+## Template rotation, post-type "no pic" rule, layout variants (2 Oct 2026)
+
+- **Media pairing** (`rotation.py::_pick_media`) is now weighted by post type instead
+  of picked evenly from 6, where "no picture" came up only about 1 post in 6. Personal
+  reflections are text-only about 55% of the time; commentary about 20%. Text-only is
+  never excluded by the last-3 rule. Your own photo always forces `candid_photo`.
+  Measured over 5,000 picks with two pairings recently used: personal 69% text-only,
+  commentary 36%.
+- **Template rotation**: `candidate_templates(..., recent)` drops templates used on
+  the last 3 posts with a visual (`attach.py`), as long as something is left.
+- **Variants**: `TemplateSpec.variant_of` - an alternate layout (e.g. `statement_b`)
+  is offered automatically wherever its base template is, with no changes to
+  `PAIRING_TEMPLATES`. New layouts from Claude Design slot in as new `CATALOG` entries
+  plus a `templates/<key>.html.j2`.
+- Brand note: posts stay on the light theme (BRAND.md §7: at most one Forest block),
+  so variants are new compositions, not dark versions.

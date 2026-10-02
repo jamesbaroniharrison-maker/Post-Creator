@@ -154,6 +154,9 @@ class TemplateSpec(pydantic.BaseModel):
     needs_photo: bool = False
     list_lengths: dict[str, tuple[int, int]] = {}
     word_limits: dict[str, int] = {}
+    # An alternate layout of another template ("statement_b" of "statement"): same
+    # kind of post, different look. It's offered wherever its base template is.
+    variant_of: str = ""
 
 
 CATALOG: dict[str, TemplateSpec] = {
@@ -278,6 +281,12 @@ PAIRING_TEMPLATES: dict[str, list[str]] = {
 }
 
 
-def candidate_templates(media_pairing: str | None, has_photo: bool) -> list[str]:
-    keys = PAIRING_TEMPLATES.get(media_pairing or "", list(CATALOG))
-    return [k for k in keys if has_photo or not CATALOG[k].needs_photo] or ["statement"]
+def candidate_templates(media_pairing: str | None, has_photo: bool, recent: set[str] | None = None) -> list[str]:
+    """Templates that suit the pairing (plus any layout variants of them), minus any
+    used on the last few posts - so the same look doesn't come round twice running.
+    The recent ones only drop out if something else is left."""
+    base = PAIRING_TEMPLATES.get(media_pairing or "", list(CATALOG))
+    keys = [k for k in base if k in CATALOG] + [k for k in CATALOG if CATALOG[k].variant_of in base]
+    keys = [k for k in keys if has_photo or not CATALOG[k].needs_photo] or ["statement"]
+    fresh = [k for k in keys if k not in (recent or set())]
+    return fresh or keys

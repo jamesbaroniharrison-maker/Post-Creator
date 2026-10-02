@@ -4,6 +4,7 @@ import json
 import pathlib
 
 import reflex as rx
+import sqlmodel
 
 from rxconfig import config
 from linkedin_content_engine.models import Post, TopicBank
@@ -37,10 +38,18 @@ def make_visual_for_post(post_id: int, template_key: str | None = None, force: b
         post_text, media_pairing, photo = post.draft_text, post.media_pairing, post.source_photo or ""
         if has_photo:
             media_pairing = "candid_photo"  # your own photo beats whatever the rotation picked
+        # Templates on the last 3 posts that had a visual - rotated out so the feed
+        # doesn't show the same layout twice in a row.
+        recent = set(session.exec(
+            sqlmodel.select(Post.visual_template)
+            .where(Post.id != post_id, Post.visual_template != None)  # noqa: E711
+            .order_by(sqlmodel.col(Post.created_at).desc())
+            .limit(3)
+        ).all())
 
     try:
         result = make_visual(post_text, source_text, media_pairing, visuals_dir(post_id), photo=photo,
-                             template_key=template_key)
+                             template_key=template_key, recent_templates=recent)
         fields = {
             "visual_template": result["template"],
             "visual_slots": json.dumps(result["slots"]),

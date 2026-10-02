@@ -160,6 +160,7 @@ def make_visual(
     out_dir: pathlib.Path,
     photo: str = "",
     template_key: str | None = None,
+    recent_templates: set[str] | None = None,
 ) -> dict:
     """Fill and render one visual for a post.
 
@@ -171,7 +172,7 @@ def make_visual(
     if template_key:
         candidates = [template_key]
     else:
-        candidates = candidate_templates(media_pairing, has_photo)
+        candidates = candidate_templates(media_pairing, has_photo, recent_templates)
     source_all = f"{post_text}\n{source_text}"
 
     key, slots, problems = _fill(candidates, post_text, source_all)

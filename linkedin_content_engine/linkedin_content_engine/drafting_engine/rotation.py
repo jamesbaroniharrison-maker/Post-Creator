@@ -97,7 +97,35 @@ def _pick_length_bucket() -> str:
     return random.choices(options, weights=weights, k=1)[0]
 
 
-def assign_rotation(scheduled_week: str | None = None, overrides: dict[str, str] | None = None) -> dict:
+# Media pairing is weighted by post type, not picked evenly from 6 (which made "no
+# picture" only 1 post in 6). A personal story without your own photo usually lands
+# better as plain text; commentary leans toward a visual. Request: "sometimes
+# recommend no pic... for certain ones". Roughly 30-40% text-only overall.
+_MEDIA_WEIGHTS = {
+    "personal_reflection": {"text_only": 0.55, "carousel": 0.10, "infographic": 0.10,
+                            "screenshot": 0.15, "chart": 0.0, "candid_photo": 0.10},
+    "default": {"text_only": 0.20, "carousel": 0.20, "infographic": 0.25,
+                "screenshot": 0.15, "chart": 0.15, "candid_photo": 0.05},
+}
+
+
+def _pick_media(post_type: str | None, has_photo: bool, used: set[str]) -> str:
+    """Your own photo always wins. Otherwise a weighted pick, excluding the last 3
+    posts' pairings - except text-only, which is a resting state, not a "look" that
+    gets stale, so it's never excluded."""
+    if has_photo:
+        return "candid_photo"
+    weights = _MEDIA_WEIGHTS.get(post_type or "", _MEDIA_WEIGHTS["default"])
+    options = [m for m, w in weights.items() if w > 0 and (m == "text_only" or m not in used)]
+    return random.choices(options, weights=[weights[m] for m in options], k=1)[0]
+
+
+def assign_rotation(
+    scheduled_week: str | None = None,
+    overrides: dict[str, str] | None = None,
+    post_type: str | None = None,
+    has_photo: bool = False,
+) -> dict:
     """Pick this post's funnel stage + THBM execution variables, excluding whatever the
     last 3 posts used, per the framework's anti-fatigue rule (length is handled
     separately - see _pick_length_bucket).
@@ -128,7 +156,7 @@ def assign_rotation(scheduled_week: str | None = None, overrides: dict[str, str]
         "hook_posture": _pick_excluding(HOOK_POSTURES, used_hooks),
         "length_bucket": _pick_length_bucket(),
         "structural_format": _pick_excluding(STRUCTURAL_FORMATS, used_formats),
-        "media_pairing": _pick_excluding(MEDIA_PAIRINGS, used_media),
+        "media_pairing": _pick_media(post_type, has_photo, used_media),
     }
     for key, value in (overrides or {}).items():
         if value and value != AUTO_SENTINEL:
