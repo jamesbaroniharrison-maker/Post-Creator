@@ -52,3 +52,14 @@ if __name__ == "__main__":
         logging.info("CALENDAR: %s", calendar_result)
     except Exception:
         logging.exception("CALENDAR FAILED")
+
+    # Saturday only (and only if switched on in Settings > Weekly Plan Template):
+    # draft next week from the weekly plan, after today's research has landed, so the
+    # drafts use the freshest findings. Caught separately like the calendar step.
+    try:
+        from linkedin_content_engine.planning import maybe_auto_prepare
+
+        prepare_result = maybe_auto_prepare()
+        logging.info("AUTO-PREPARE: %s", prepare_result)
+    except Exception:
+        logging.exception("AUTO-PREPARE FAILED")

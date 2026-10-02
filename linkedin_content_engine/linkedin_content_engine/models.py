@@ -82,6 +82,14 @@ class Post(rx.Model, table=True):
     # voice corpus at the moment it was drafted - lower is closer to your real writing.
     # None when there wasn't enough corpus yet to score against (fewer than 2 samples).
     voice_delta: float | None = None
+    # The brand visual made for this post (visuals_engine/): one of the existing
+    # templates with the post's words swapped in - never a new design.
+    visual_template: str | None = None  # CATALOG key, e.g. "statement", "how_it_works"
+    visual_slots: str | None = None  # JSON: the words filled into the template
+    visual_files: str = ""  # JSON list of PNG paths, one per slide
+    visual_pdf: str | None = None  # carousels only - LinkedIn takes them as a PDF document post
+    visual_note: str | None = None  # a problem worth your eye (text didn't fit, fill failed)
+    source_photo: str | None = None  # your own uploaded photo, used by the photo template
 
 
 class VoiceSample(rx.Model, table=True):
@@ -180,6 +188,10 @@ class WeeklyTemplate(rx.Model, table=True):
     # that date lands on a recognised holiday (request: "sync with like holidays and
     # recommend if it was a specific day... Christmas post or Halloween post").
     recommend_holidays: bool = True
+    # Saturday auto-prepare (planning.py): the daily research job drafts next week from
+    # this template, so the drafts are waiting in Review by Sunday. Still nothing goes
+    # out without your approval.
+    auto_prepare: bool = True
 
 
 class EmailSettings(rx.Model, table=True):

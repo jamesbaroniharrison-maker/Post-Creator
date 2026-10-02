@@ -1349,3 +1349,69 @@ rendering everywhere. Caught and fixed one real gap this way: the login page's
 "Register" link rendered in Radix's default green because `design_tokens.css`
 never defined a global `a { color }` rule - added one matching the brand doc's
 own (`a { color: var(--accent-terracotta) }`, hover to `var(--text)`).
+
+## Brand visuals, ready-to-post bundles, "Prepare next week", next-week digest (2 Oct 2026)
+
+Request: "take [the brand post templates] and text swapped out. Not new ones made"; a
+week prepared in one click; files named for LinkedIn; and the weekly email covering
+*next* week's accepted posts and planned notes, with all images, PDFs and text,
+labelled by day. PowerPoint versions of the templates are coming later, so the renderer
+is the one swappable piece (`visuals_engine/render.py`).
+
+- **`visuals_engine/`**: the 10 Baroni templates (`D:\Work\! Branding\Post Templates.dc.html`)
+  copied as Jinja templates (`templates/*.html.j2`, shared `_parts.j2`). Layout and
+  colours are unchanged; only the words are filled in. Fonts and logos are bundled
+  locally. `spec.py` holds each template's slots, word/list limits and `when` it fits,
+  plus `PAIRING_TEMPLATES` (rotation `media_pairing` -> candidate templates).
+  `render.py` uses headless Chromium (Playwright, run in its own thread because the
+  sync API refuses an asyncio loop) to produce 1080x1350 PNGs (the announcement is
+  1080x1080), plus a PDF for carousels (LinkedIn document post). It also measures text
+  overflow per slide. Giant display glyphs (font-size >= 150) are excluded, otherwise
+  every quote mark false-flags. `samples.py` = the original template text, for
+  fidelity checks.
+- **`fill.py`**: one narrow `_chat` call picks a template from the candidates and fills
+  the slots. Python then checks the result: spec validation, word/list limits, and
+  **every number on the visual must appear in the post or its bank source**. A failed
+  check gets one retry with the problems listed, then falls back to `statement`. If
+  rendered text overflows, it gets one "shorten it" retry, then ships with a
+  `visual_note`. Em dashes are stripped deterministically. Null/"None" slots are
+  dropped, so template defaults apply. This was found live: `cta_small: null` rendered
+  as the word "NONE". CTA buttons are told to invite a reply/follow, never a sales offer
+  (the first live test invented "Start now").
+- **`attach.py`**: `make_visual_for_post()` runs automatically after every draft
+  (`pipeline.py`, `AUTO_VISUALS=0` to disable). A failure is only a note, never a lost
+  draft. Text-only posts are skipped unless asked by hand. An uploaded photo
+  (`Post.source_photo`, now saved from photo uploads and kept across redrafts) forces
+  the photo template. Files go to `uploaded_files/visuals/post-<id>/`. Real bug found
+  live: `rx.get_upload_dir()` is relative, and file URIs need an absolute path.
+- **Schema**: `Post.visual_template/visual_slots/visual_files/visual_pdf/visual_note/
+  source_photo` (`e9758bfd207c`) and `WeeklyTemplate.auto_prepare` (`5762dca53fe9`).
+- **`exports.py`**: ready-to-post folders under `exports/<week>/<NN Day - type>/`
+  containing `post.txt` (text + hashtags) and `baroni-[format]-[topic]-[date]`
+  PNG/PDF. They are rebuilt on accept, on re-make and for the digest, and gitignored
+  (as is `uploaded_files/`).
+- **`planning.py`**: `plan_week`'s logic is moved here as `prepare_week()`, with
+  `draft_from_bank_row` shared with state.py. Home has a "Prepare next week" button.
+  `maybe_auto_prepare()` runs from the 7am research job on Saturdays when switched on
+  in Settings (once per week, guarded via `JobRun`). Nothing gets approved for you.
+- **Digest** (`email_engine/digest.py`): covers next week. Each approved post appears
+  under its day (`scheduled_week` + `suggested_day`) with full text and hashtags, PNGs
+  inline (cid), and the carousel PDF attached. Days with only a plan-ahead note show it,
+  marked "not approved yet". Above 18MB, carousels inline only their first slide
+  (Gmail limit 25MB). `send_email` now takes `html`/`inline_images`/`attachments`.
+  "Email me next week's posts" (Home) / "Send next week's email now" (Settings) send
+  it on demand.
+- **UI**: `visual_panel()` on Review and Accepted cards shows thumbnails (click for
+  full size), the PDF link, a template switcher, Make/Re-make visual and Open folder
+  (`os.startfile`, local only).
+
+Verified live: all 10 templates render from the original text without false overflow,
+and deliberately long text is caught. A real draft forced to `carousel` made a correct
+5-slide how-it-works carousel and PDF in ~7s. The bundle folder and file names were
+correct. A real HTML digest with 5 inline slides and the PDF attached was sent to
+James's address. A logged-in browser check confirmed thumbnails load (naturalWidth
+1080) and all new buttons render. The test post was deleted afterwards (fresh-start DB).
+
+Note: the Saturday auto-prepare adds roughly 10-25 min to that day's 7am job
+(best-of-3 drafts + visuals). The 90-minute `ExecutionTimeLimit` covers it, but only
+once `register_scheduled_task.ps1` has been re-run elevated (still pending from 3 Sept).

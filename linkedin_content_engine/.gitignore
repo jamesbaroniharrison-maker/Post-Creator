@@ -8,3 +8,8 @@ assets/uploads/*
 .states
 __pycache__/
 .env
+
+# Ready-to-post bundles (exports.py) - copies of what the database already holds
+exports/
+# Uploaded photos/audio and rendered post visuals (personal)
+uploaded_files/

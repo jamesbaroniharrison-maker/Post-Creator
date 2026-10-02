@@ -4,6 +4,7 @@ import reflex as rx
 import reflex_local_auth
 
 from linkedin_content_engine.scheduling import WEEKLY_CAP
+from linkedin_content_engine.visuals_engine.spec import CATALOG
 from linkedin_content_engine.dashboard.recorder import record_button
 from linkedin_content_engine.dashboard.state import (
     POST_TYPES,
@@ -225,6 +226,98 @@ def post_editable_body(post: PostView, editable: bool = True) -> rx.Component:
     )
 
 
+def _template_select(post: PostView) -> rx.Component:
+    return rx.select.root(
+        rx.select.trigger(placeholder="Template", width="15rem"),
+        rx.select.content(
+            rx.select.group(*[rx.select.item(spec.name, value=key) for key, spec in CATALOG.items()]),
+        ),
+        value=post.visual_choice,
+        on_change=lambda v: DashboardState.set_visual_choice(post.id, v),
+        size="1",
+    )
+
+
+def visual_panel(post: PostView, show_folder: bool = False) -> rx.Component:
+    """The post's brand visual: thumbnails (click for full size), the carousel PDF,
+    a template switcher and Make / Re-make. The words come from the post; the designs
+    are the existing Baroni templates, unchanged."""
+    has_visual = post.visual_files.length() > 0
+    return rx.vstack(
+        rx.cond(
+            has_visual,
+            rx.vstack(
+                rx.text(
+                    f"Visual · {post.visual_template_label}",
+                    size="1",
+                    class_name="hud-label",
+                ),
+                rx.hstack(
+                    rx.foreach(
+                        post.visual_files,
+                        lambda f: rx.link(
+                            rx.image(
+                                src=rx.get_upload_url(f),
+                                width="132px",
+                                height="auto",
+                                border="1px solid var(--border)",
+                                loading="lazy",
+                            ),
+                            href=rx.get_upload_url(f),
+                            is_external=True,
+                        ),
+                    ),
+                    spacing="2",
+                    wrap="wrap",
+                ),
+                rx.cond(
+                    post.visual_pdf != "",
+                    rx.link(
+                        "Carousel PDF (upload this to LinkedIn as a document)",
+                        href=rx.get_upload_url(post.visual_pdf),
+                        is_external=True,
+                        size="2",
+                    ),
+                ),
+                spacing="2",
+                width="100%",
+            ),
+        ),
+        rx.cond(
+            post.visual_note != "",
+            rx.text(post.visual_note, size="1", color="var(--status-rejected-text)"),
+        ),
+        rx.hstack(
+            _template_select(post),
+            rx.button(
+                rx.cond(has_visual, "Re-make visual", "Make a visual"),
+                size="1",
+                on_click=DashboardState.remake_visual(post.id),
+                loading=DashboardState.is_busy,
+                **SECONDARY_CTA,
+            ),
+            *(
+                [
+                    rx.button(
+                        "Open folder",
+                        size="1",
+                        on_click=DashboardState.open_bundle(post.id),
+                        disabled=post.bundle_dir == "",
+                        **SECONDARY_CTA,
+                    )
+                ]
+                if show_folder
+                else []
+            ),
+            spacing="2",
+            wrap="wrap",
+            align="center",
+        ),
+        spacing="2",
+        width="100%",
+    )
+
+
 def review_post_card(post: PostView) -> rx.Component:
     """Review page: Accept / Redraft / Reject."""
     return rx.card(
@@ -263,6 +356,7 @@ def review_post_card(post: PostView) -> rx.Component:
                 rx.text(post.voice_delta_label, size="1", class_name="hud-muted"),
             ),
             post_editable_body(post),
+            visual_panel(post),
             rx.text("Redraft note (optional)", size="2", weight="medium", class_name="hud-muted"),
             rx.text_area(
                 value=post.redraft_note,
@@ -310,6 +404,7 @@ def accepted_post_card(post: PostView) -> rx.Component:
                 align="center",
             ),
             post_editable_body(post),
+            visual_panel(post, show_folder=True),
             rx.cond(
                 post.status == "published",
                 rx.hstack(

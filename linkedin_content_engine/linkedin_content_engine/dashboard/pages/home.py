@@ -5,7 +5,13 @@ on one big page")."""
 import reflex as rx
 import reflex_local_auth
 
-from linkedin_content_engine.dashboard.components import PRIMARY_CTA, page_shell, stat_card, type_select
+from linkedin_content_engine.dashboard.components import (
+    PRIMARY_CTA,
+    SECONDARY_CTA,
+    page_shell,
+    stat_card,
+    type_select,
+)
 from linkedin_content_engine.dashboard.recorder import record_button
 from linkedin_content_engine.dashboard.state import POST_TYPES, DashboardState
 
@@ -110,6 +116,38 @@ def _upload_box() -> rx.Component:
     )
 
 
+def _prepare_week_box() -> rx.Component:
+    """One click from nothing to a reviewable week: drafts every day the weekly plan
+    asks for, with visuals, straight into Review."""
+    return rx.vstack(
+        rx.heading("Next week", size="5"),
+        rx.text(
+            "Drafts next week from your weekly plan, with visuals, ready in Posts > Review. "
+            "Nothing goes out until you accept it and post it yourself.",
+            size="2",
+            class_name="hud-muted",
+        ),
+        rx.hstack(
+            rx.button(
+                "Prepare next week",
+                on_click=DashboardState.prepare_next_week,
+                loading=DashboardState.is_busy,
+                **PRIMARY_CTA,
+            ),
+            rx.button(
+                "Email me next week's posts",
+                on_click=DashboardState.send_digest_now,
+                loading=DashboardState.is_busy,
+                **SECONDARY_CTA,
+            ),
+            spacing="2",
+            wrap="wrap",
+        ),
+        spacing="3",
+        width="100%",
+    )
+
+
 @reflex_local_auth.require_login
 def home_page() -> rx.Component:
     """The reference's Home mockup wraps everything - stats, weekly input - in one
@@ -121,6 +159,7 @@ def home_page() -> rx.Component:
         rx.card(
             rx.vstack(
                 _stats_panel(),
+                _prepare_week_box(),
                 _upload_box(),
                 spacing="0",
                 gap="2.5rem",

@@ -37,6 +37,10 @@ from linkedin_content_engine.email_engine.reminder import PROMPT_POOL
 from linkedin_content_engine.email_engine.settings import get_email_settings, save_email_settings
 from linkedin_content_engine.holidays import holiday_for_date
 from linkedin_content_engine.calendar_engine.pipeline import try_link_now
+from linkedin_content_engine.planning import draft_from_bank_row, next_week_monday, prepare_week
+from linkedin_content_engine.exports import build_bundle
+from linkedin_content_engine.visuals_engine.attach import make_visual_for_post
+from linkedin_content_engine.visuals_engine.spec import CATALOG
 from linkedin_content_engine.models import (
     CalendarEvent,
     ForcedTopic,
@@ -157,6 +161,14 @@ class PostView(pydantic.BaseModel):
     media_note: str = ""
     voice_delta_label: str = ""
     redraft_note: str = ""  # what to change on Redraft - typed or dictated, kept across reloads
+    # Brand visual (visuals_engine/): paths relative to the upload dir, for rx.get_upload_url
+    visual_files: list[str] = []
+    visual_pdf: str = ""
+    visual_template: str = ""
+    visual_template_label: str = ""
+    visual_note: str = ""
+    visual_choice: str = ""  # the template picked in the switcher, before "Re-make visual"
+    bundle_dir: str = ""
 
 
 class BankView(pydantic.BaseModel):
@@ -371,6 +383,25 @@ def _voice_delta_label(delta: float | None) -> str:
     return f"Voice match: distant ({delta})"
 
 
+def _json_list(value: str | None) -> list:
+    try:
+        return json.loads(value or "[]")
+    except json.JSONDecodeError:
+        return []
+
+
+def _upload_rel(path: str) -> str:
+    """A file under the upload dir as the relative path rx.get_upload_url expects."""
+    try:
+        return pathlib.Path(path).resolve().relative_to(pathlib.Path(rx.get_upload_dir()).resolve()).as_posix()
+    except ValueError:
+        return ""
+
+
+# Template switcher options: "" keeps the model's own pick.
+VISUAL_TEMPLATE_OPTIONS = list(CATALOG)
+
+
 def _row_to_view(p: Post) -> PostView:
     return PostView(
         id=p.id,
@@ -397,35 +428,16 @@ def _row_to_view(p: Post) -> PostView:
         media_pairing_label=humanize(p.media_pairing or ""),
         media_note=p.media_note or "",
         voice_delta_label=_voice_delta_label(p.voice_delta),
+        visual_files=[_upload_rel(f) for f in _json_list(p.visual_files) if pathlib.Path(f).exists()],
+        visual_pdf=_upload_rel(p.visual_pdf) if p.visual_pdf and pathlib.Path(p.visual_pdf).exists() else "",
+        visual_template=p.visual_template or "",
+        visual_template_label=CATALOG[p.visual_template].name if p.visual_template in CATALOG else "",
+        visual_note=p.visual_note or "",
+        visual_choice=p.visual_template or "",
     )
 
 
-def _draft_from_bank_row(
-    bank_id: int,
-    summary: str,
-    source_title: str,
-    source_url: str,
-    category: str,
-    rotation_overrides: dict[str, str] | None = None,
-) -> None:
-    """Shared by generate_from_bank, fill_week, and the batch-draft queue - drafts
-    from one topic bank row and marks it used. Raises on failure so callers can
-    decide how to report it, rather than swallowing the error here."""
-    research = ResearchResult(
-        topic=summary,
-        status="ok",
-        findings=[ResearchFinding(title=source_title, url=source_url, content=summary)],
-    )
-    post_type = CATEGORY_TO_POST_TYPE.get(category, "ai_commentary")
-    generate_draft_with_research(
-        summary, post_type, research, source_bank_id=bank_id, rotation_overrides=rotation_overrides
-    )
-    with rx.session(url=config.db_url) as session:
-        row = session.get(TopicBank, bank_id)
-        row.used = True
-        row.date_used = datetime.now(timezone.utc)
-        session.add(row)
-        session.commit()
+_draft_from_bank_row = draft_from_bank_row  # shared with planning.py's prepare_week
 
 
 class DashboardState(rx.State):
@@ -540,6 +552,7 @@ class DashboardState(rx.State):
     wt_saturday: str = "no_post"
     wt_sunday: str = "no_post"
     wt_recommend_holidays: bool = True
+    wt_auto_prepare: bool = True
 
     # Topic Bank -> day linking (request: "click on them and even drag them or select
     # a day that I want them to be linked to" - literal cross-page drag-and-drop isn't
@@ -605,6 +618,7 @@ class DashboardState(rx.State):
                 .order_by(sqlmodel.col(Post.scheduled_week).asc(), sqlmodel.col(Post.created_at).asc())
             ).all()
         self.accepted_posts = [_row_to_view(p) for p in rows]
+        self._refresh_bundles()
 
     def _reload_rejected(self):
         with rx.session(url=config.db_url) as session:
@@ -1024,6 +1038,7 @@ class DashboardState(rx.State):
             for day in _WEEKDAY_FIELDS:
                 setattr(self, f"wt_{day}", getattr(row, day))
             self.wt_recommend_holidays = row.recommend_holidays
+            self.wt_auto_prepare = row.auto_prepare
 
     @rx.event
     def set_wt_monday(self, value: str):
@@ -1058,6 +1073,10 @@ class DashboardState(rx.State):
         self.wt_recommend_holidays = value
 
     @rx.event
+    def set_wt_auto_prepare(self, value: bool):
+        self.wt_auto_prepare = value
+
+    @rx.event
     def save_weekly_template(self):
         with rx.session(url=config.db_url) as session:
             row = session.exec(sqlmodel.select(WeeklyTemplate)).first()
@@ -1066,6 +1085,7 @@ class DashboardState(rx.State):
             for day in _WEEKDAY_FIELDS:
                 setattr(row, day, getattr(self, f"wt_{day}"))
             row.recommend_holidays = self.wt_recommend_holidays
+            row.auto_prepare = self.wt_auto_prepare
             session.add(row)
             session.commit()
         # Plan ahead's per-day dropdowns follow the schedule, so re-seed them from it.
@@ -1173,6 +1193,102 @@ class DashboardState(rx.State):
             session.add(row)
             session.commit()
 
+    def _rebuild_bundles(self) -> None:
+        """Ready-to-post folders (exports/<week>/<NN Day - type>/) for every approved
+        post - rebuilt after anything that can change a post's day or files."""
+        with rx.session(url=config.db_url) as session:
+            ids = session.exec(
+                sqlmodel.select(Post.id).where(sqlmodel.col(Post.status).in_(["approved", "published"]))
+            ).all()
+        for pid in ids:
+            try:
+                build_bundle(pid)
+            except Exception:  # noqa: BLE001 - a folder copy must never block a review click
+                pass
+        self._refresh_bundles()
+
+    def _refresh_bundles(self) -> None:
+        from linkedin_content_engine.exports import EXPORTS_DIR
+
+        folders = {}
+        if EXPORTS_DIR.exists():
+            for marker in EXPORTS_DIR.glob("*/*/.post-*"):
+                folders[int(marker.name.split("-")[1])] = str(marker.parent)
+        for p in self.accepted_posts:
+            p.bundle_dir = folders.get(p.id, "")
+
+    @rx.event
+    def set_visual_choice(self, post_id: int, value: str):
+        post = self._find_post(post_id)
+        if post:
+            post.visual_choice = value
+
+    @rx.event(background=True)
+    async def remake_visual(self, post_id: int):
+        """Makes (or re-makes) a post's visual - in the template picked in the
+        switcher, or the model's own pick when nothing's chosen. Works on text-only
+        posts too: asking by hand overrides the rotation's "no image"."""
+        async with self:
+            view = self._find_post(post_id)
+            choice = view.visual_choice if view else ""
+            self.is_busy = True
+            self.status_message = "Making the visual..."
+        make_visual_for_post(post_id, template_key=choice or None, force=True)
+        with rx.session(url=config.db_url) as session:
+            post = session.get(Post, post_id)
+            approved = post is not None and post.status in ("approved", "published")
+        if approved:
+            build_bundle(post_id)
+        async with self:
+            self.is_busy = False
+            self.status_message = "Visual ready." if self._visual_ok(post_id) else "Visual didn't work - see the note on the post."
+            self._reload_posts()
+            self._reload_accepted()
+            self._refresh_bundles()
+
+    def _visual_ok(self, post_id: int) -> bool:
+        with rx.session(url=config.db_url) as session:
+            post = session.get(Post, post_id)
+        return bool(post and _json_list(post.visual_files)) and not (post.visual_note or "").startswith("Couldn't")
+
+    @rx.event
+    def open_bundle(self, post_id: int):
+        """Opens the post's ready-to-post folder in Explorer (this PC only)."""
+        import os
+
+        post = self._find_post(post_id)
+        if post and post.bundle_dir and pathlib.Path(post.bundle_dir).exists():
+            os.startfile(post.bundle_dir)  # noqa: S606 - local folder we wrote ourselves
+        else:
+            self.status_message = "No ready-to-post folder yet - it's made when the post is accepted."
+
+    @rx.event
+    def prepare_next_week(self):
+        return DashboardState.plan_week(next_week_monday())
+
+    @rx.event(background=True)
+    async def send_digest_now(self):
+        """Sends next week's digest now, regardless of the scheduled day."""
+        from linkedin_content_engine.email_engine.digest import build_digest
+        from linkedin_content_engine.email_engine.send import send_email
+
+        async with self:
+            self.is_busy = True
+            self.status_message = "Building next week's email..."
+        settings = get_email_settings()
+        if not settings or not settings.recipient_email:
+            message = "Set a recipient in Email reminders first."
+        else:
+            d = build_digest()
+            sent, why = send_email(
+                settings.recipient_email, d["subject"], d["text"],
+                html=d["html"], inline_images=d["inline"], attachments=d["attachments"],
+            )
+            message = f"Sent next week's email ({d['count']} post(s))." if sent else why
+        async with self:
+            self.is_busy = False
+            self.status_message = message
+
     # ---- editing ----
 
     @rx.event
@@ -1262,6 +1378,7 @@ class DashboardState(rx.State):
         now = datetime.now(timezone.utc)
         self._persist(post_id, status="approved", reviewed_at=now)
         allocate_accepted_posts()  # request: auto-assign into this/next week
+        self._rebuild_bundles()
         self._reload_posts()
         self._reload_accepted()
         self._reload_stats()
@@ -1293,6 +1410,7 @@ class DashboardState(rx.State):
                     self.status_message = "That post no longer exists."
                 return
             topic, post_type, sources_json = old.draft_text, old.post_type, old.sources
+            photo = old.source_photo
 
         # With a note, the model needs the whole previous draft to know what it's
         # changing; without one, keep the original behaviour (a fresh take on its opening).
@@ -1302,7 +1420,7 @@ class DashboardState(rx.State):
         try:
             findings = [ResearchFinding(**s) for s in json.loads(sources_json or "[]")]
             research = ResearchResult(topic=topic, status="ok" if findings else "no_results", findings=findings)
-            generate_draft_with_research(draft_topic, post_type, research)
+            generate_draft_with_research(draft_topic, post_type, research, source_photo=photo)
             now = datetime.now(timezone.utc)
             with rx.session(url=config.db_url) as session:
                 old = session.get(Post, post_id)
@@ -1624,79 +1742,8 @@ class DashboardState(rx.State):
             self.is_busy = True
             self.status_message = f"Planning the week of {monday}..."
 
-        with rx.session(url=config.db_url) as session:
-            template = session.exec(sqlmodel.select(WeeklyTemplate)).first()
-            if template is None:
-                template = WeeklyTemplate()
-            already_noted = {
-                n.target_date
-                for n in session.exec(
-                    sqlmodel.select(PlannedNote).where(
-                        sqlmodel.col(PlannedNote.target_date).in_(week_dates(monday))
-                    )
-                ).all()
-            }
-
-        planned = 0
-        skipped_no_post = 0
-        failed = 0
-        for d in week_dates(monday):
-            if d in already_noted:
-                continue
-            weekday_field = date.fromisoformat(d).strftime("%A").lower()
-            post_type = getattr(template, weekday_field)
-            holiday = holiday_for_date(d) if template.recommend_holidays else None
-            note_text = ""
-            if holiday:
-                note_text = f"{holiday[0]}: {holiday[1]}"
-                if post_type == "no_post":
-                    post_type = "personal_reflection"
-            if post_type == "no_post":
-                skipped_no_post += 1
-                continue
-
-            with rx.session(url=config.db_url) as session:
-                note = PlannedNote(
-                    target_date=d,
-                    note_text=note_text or f"Auto-planned {humanize(post_type)} post.",
-                    post_type=post_type,
-                    created_at=datetime.now(timezone.utc),
-                )
-                bank_row = None
-                if post_type != "personal_reflection":
-                    category = "ai" if post_type == "ai_commentary" else "market"
-                    bank_row = session.exec(
-                        sqlmodel.select(TopicBank)
-                        .where(
-                            TopicBank.used == False,  # noqa: E712
-                            TopicBank.tier != "discard",
-                            TopicBank.category == category,
-                        )
-                        .order_by(sqlmodel.col(TopicBank.tier).asc(), sqlmodel.col(TopicBank.date_found).desc())
-                    ).first()
-                    if bank_row:
-                        note.source_bank_id = bank_row.id
-                session.add(note)
-                session.commit()
-                session.refresh(note)
-                bank_data = (
-                    (bank_row.id, bank_row.summary, bank_row.source_title, bank_row.source_url, bank_row.category)
-                    if bank_row
-                    else None
-                )
-
-            try:
-                if post_type == "personal_reflection":
-                    generate_and_save_draft(note_text or random.choice(PROMPT_POOL), post_type, skip_research=True)
-                elif bank_data:
-                    _draft_from_bank_row(*bank_data)
-                else:
-                    generate_and_save_draft(
-                        note_text or f"Something notable in {category} recently", post_type, skip_research=False
-                    )
-                planned += 1
-            except Exception:  # noqa: BLE001 - keep going through the rest of the week
-                failed += 1
+        result = prepare_week(monday)
+        planned, skipped_no_post, failed = result["planned"], result["skipped_no_post"], result["failed"]
 
         message = f"Planned {planned} day(s) for the week of {monday}"
         if skipped_no_post:
@@ -2148,7 +2195,9 @@ class DashboardState(rx.State):
             name = pathlib.Path(path).name
             try:
                 result = ingest_file(path)
-                generate_and_save_draft(result["notes"], post_type, skip_research=True)
+                generate_and_save_draft(
+                    result["notes"], post_type, skip_research=True, source_photo=result.get("stored_path")
+                )
                 messages.append(f"{name}: draft generated.")
             except UnsupportedMediaError as exc:
                 messages.append(f"{name}: {exc}")

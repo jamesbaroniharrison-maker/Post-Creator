@@ -235,6 +235,14 @@ def _weekly_plan_card() -> rx.Component:
                 ),
                 width="100%",
             ),
+            rx.hstack(
+                rx.checkbox(
+                    "Prepare next week automatically every Saturday (drafts + visuals land in Review)",
+                    checked=DashboardState.wt_auto_prepare,
+                    on_change=DashboardState.set_wt_auto_prepare,
+                ),
+                width="100%",
+            ),
             rx.button(
                 "Save weekly plan",
                 on_click=DashboardState.save_weekly_template,
@@ -323,6 +331,14 @@ def _email_settings() -> rx.Component:
                 size="3",
                 width="100%",
                 **PRIMARY_CTA,
+            ),
+            rx.button(
+                "Send next week's email now",
+                on_click=DashboardState.send_digest_now,
+                loading=DashboardState.is_busy,
+                size="2",
+                width="100%",
+                **SECONDARY_CTA,
             ),
             spacing="3",
             width="100%",

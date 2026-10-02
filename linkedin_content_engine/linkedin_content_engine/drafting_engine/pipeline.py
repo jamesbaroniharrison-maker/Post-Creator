@@ -6,6 +6,7 @@ to the daily research cron + topic bank so topics don't have to be supplied by h
 """
 
 import json
+import os
 from datetime import datetime, timezone
 
 import reflex as rx
@@ -16,6 +17,7 @@ from linkedin_content_engine.drafting_engine.draft import best_of_n_draft_post
 from linkedin_content_engine.drafting_engine.research import ResearchResult, research_topic
 from linkedin_content_engine.drafting_engine.rotation import assign_rotation
 from linkedin_content_engine.models import Post, VoiceProfile
+from linkedin_content_engine.visuals_engine.attach import make_visual_for_post
 
 
 def load_voice_profile() -> dict:
@@ -33,6 +35,7 @@ def generate_draft_with_research(
     research: ResearchResult,
     source_bank_id: int | None = None,
     rotation_overrides: dict[str, str] | None = None,
+    source_photo: str | None = None,
 ) -> Post:
     """Draft and save one post, given research that's already been gathered.
 
@@ -69,11 +72,20 @@ def generate_draft_with_research(
         media_pairing=rotation["media_pairing"],
         media_note=draft.media_note,
         voice_delta=voice_delta,
+        source_photo=source_photo,
     )
     with rx.session(url=config.db_url) as session:
         session.add(post)
         session.commit()
         session.refresh(post)
+
+    # The brand visual (visuals_engine/) - made right away so it's waiting in Review
+    # next to the text. Never allowed to cost the draft: a failure only leaves a note.
+    if os.environ.get("AUTO_VISUALS", "1") != "0":
+        try:
+            post = make_visual_for_post(post.id) or post
+        except Exception:  # noqa: BLE001
+            pass
     return post
 
 
@@ -82,6 +94,7 @@ def generate_and_save_draft(
     post_type: str,
     source_bank_id: int | None = None,
     skip_research: bool = False,
+    source_photo: str | None = None,
 ) -> Post:
     """Research (unless skipped) and draft one post, then save it as a `posts` row."""
     research = (
@@ -89,4 +102,4 @@ def generate_and_save_draft(
         if not skip_research
         else ResearchResult(topic=topic, status="ok", findings=[])
     )
-    return generate_draft_with_research(topic, post_type, research, source_bank_id)
+    return generate_draft_with_research(topic, post_type, research, source_bank_id, source_photo=source_photo)
