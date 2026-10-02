@@ -14,8 +14,10 @@ echo ================================================================
 echo.
 
 REM --- Clear out any old server processes still holding the ports, so we always
-REM     start clean on the addresses this script expects. ---
-powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3000,8000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+REM     start clean. 8000-8010, not just 8000: when 8000 is busy Reflex silently moves
+REM     the backend to 8001, 8002... and a leftover one there means two backends share
+REM     one frontend - the page talks to one while uploads/drafts go to the other. ---
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort (@(3000) + (8000..8010)) -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
 
 REM --- Make sure Ollama (needed for drafting posts) is running ---
 echo Checking Ollama is running...
