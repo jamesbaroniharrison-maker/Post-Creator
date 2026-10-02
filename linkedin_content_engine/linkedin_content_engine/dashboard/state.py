@@ -5,9 +5,12 @@ populates, shortlist forms, drafts generate, you review and approve or reject,
 stats update) has to run end to end without touching code.
 """
 
+import base64
 import json
 import pathlib
 import random
+import tempfile
+import uuid
 from datetime import date, datetime, timedelta, timezone
 
 import pydantic
@@ -16,6 +19,7 @@ import sqlmodel
 
 from rxconfig import config
 from linkedin_content_engine.capture.ingest import UnsupportedMediaError, ingest_file, ingest_text
+from linkedin_content_engine.capture.transcribe import transcribe_audio
 from linkedin_content_engine.drafting_engine.pipeline import (
     generate_and_save_draft,
     generate_draft_with_research,
@@ -83,6 +87,19 @@ QUEUE_STRUCTURAL_FORMAT_OPTIONS = [AUTO_SENTINEL, *STRUCTURAL_FORMATS]
 QUEUE_MEDIA_PAIRING_OPTIONS = [AUTO_SENTINEL, *MEDIA_PAIRINGS]
 
 
+# Browsers only give microphone access on a secure page: https, or localhost on this PC.
+# Plain http over Tailscale (the phone) counts as insecure, so recording is blocked there.
+_RECORDING_ERRORS = {
+    "insecure": (
+        "Recording only works on a secure page - open the dashboard at http://localhost:3000 "
+        "on this PC. Over plain http from another device (e.g. your phone via Tailscale) the "
+        "browser blocks the microphone; upload a voice memo there instead."
+    ),
+    "unsupported": "This browser can't record audio - try Chrome or Edge.",
+    "denied": "Microphone access was blocked - allow it in the browser's address bar and try again.",
+}
+
+
 def humanize(value: str) -> str:
     """'personal_reflection' -> 'Personal Reflection' - display only, never touches
     the stored value (request: raw snake_case showing up in the UI looked wrong)."""
@@ -137,6 +154,7 @@ class PostView(pydantic.BaseModel):
     media_pairing_label: str = ""
     media_note: str = ""
     voice_delta_label: str = ""
+    redraft_note: str = ""  # what to change on Redraft - typed or dictated, kept across reloads
 
 
 class BankView(pydantic.BaseModel):
@@ -407,6 +425,15 @@ class DashboardState(rx.State):
     new_forced_topic_category: str = "ai"
 
     upload_text: str = ""
+
+    # Dictation (request: "a button that can be pressed to allow for voice to be recorded
+    # and transcribed directly in"). target is "weekly" (Home's note box) or "redraft"
+    # (a Review card's redraft note, identified by post_id). Recording happens in the
+    # browser; transcription runs locally with the same faster-whisper capture uses.
+    recording_target: str = ""
+    recording_post_id: int = 0
+    transcribing_target: str = ""
+    transcribing_post_id: int = 0
     upload_post_type: str = "personal_reflection"
     status_message: str = ""
     is_busy: bool = False
@@ -512,7 +539,10 @@ class DashboardState(rx.State):
                 .where(Post.status == "drafted")
                 .order_by(sqlmodel.col(Post.created_at).desc())
             ).all()
-        self.posts = [_row_to_view(p) for p in rows]
+        notes = {p.id: p.redraft_note for p in self.posts if p.redraft_note}
+        self.posts = [
+            _row_to_view(p).model_copy(update={"redraft_note": notes.get(p.id, "")}) for p in rows
+        ]
 
     def _reload_accepted(self):
         with rx.session(url=config.db_url) as session:
@@ -1094,6 +1124,8 @@ class DashboardState(rx.State):
         async with self:
             self.is_busy = True
             self.status_message = "Redrafting..."
+            view = self._find_post(post_id)
+            note = view.redraft_note.strip() if view else ""
 
         with rx.session(url=config.db_url) as session:
             old = session.get(Post, post_id)
@@ -1104,10 +1136,15 @@ class DashboardState(rx.State):
                 return
             topic, post_type, sources_json = old.draft_text, old.post_type, old.sources
 
+        # With a note, the model needs the whole previous draft to know what it's
+        # changing; without one, keep the original behaviour (a fresh take on its opening).
+        draft_topic = (
+            f"Rewrite this previous draft:\n\n{topic}\n\nWhat to change: {note}" if note else topic[:200]
+        )
         try:
             findings = [ResearchFinding(**s) for s in json.loads(sources_json or "[]")]
             research = ResearchResult(topic=topic, status="ok" if findings else "no_results", findings=findings)
-            generate_draft_with_research(topic[:200], post_type, research)
+            generate_draft_with_research(draft_topic, post_type, research)
             now = datetime.now(timezone.utc)
             with rx.session(url=config.db_url) as session:
                 old = session.get(Post, post_id)
@@ -1827,6 +1864,64 @@ class DashboardState(rx.State):
     @rx.event
     def set_upload_text(self, value: str):
         self.upload_text = value
+
+    @rx.event
+    def set_redraft_note(self, post_id: int, value: str):
+        post = self._find_post(post_id)
+        if post:
+            post.redraft_note = value
+
+    @rx.event
+    def start_recording(self, target: str, post_id: int = 0):
+        self.recording_target = target
+        self.recording_post_id = post_id
+
+    @rx.event
+    def recording_started(self, result: str):
+        """Callback from the browser's start(): anything but "ok" means no mic."""
+        if result == "ok":
+            return
+        self.recording_target = ""
+        self.status_message = _RECORDING_ERRORS.get(result, f"Couldn't start recording ({result}).")
+
+    @rx.event(background=True)
+    async def receive_recording(self, data_url: str):
+        """Callback from the browser's stop(): a data URL of the recorded audio.
+        Transcribed locally (faster-whisper), then appended to whichever box was
+        recording - appended, not replaced, so dictation can add to typed text."""
+        async with self:
+            target, post_id = self.recording_target, self.recording_post_id
+            self.recording_target = ""
+            self.transcribing_target, self.transcribing_post_id = target, post_id
+
+        text, error = "", ""
+        if not data_url or "," not in data_url:
+            error = "Nothing was recorded."
+        else:
+            header, encoded = data_url.split(",", 1)
+            suffix = ".mp4" if "mp4" in header else ".ogg" if "ogg" in header else ".webm"
+            path = pathlib.Path(tempfile.gettempdir()) / f"dictation-{uuid.uuid4().hex}{suffix}"
+            try:
+                path.write_bytes(base64.b64decode(encoded))
+                text = transcribe_audio(str(path))
+            except Exception as exc:  # noqa: BLE001 - surface any failure to the UI
+                error = f"Transcription failed: {exc}"
+            finally:
+                path.unlink(missing_ok=True)
+            if not error and not text:
+                error = "No speech was picked up - try again a little closer to the mic."
+
+        async with self:
+            self.transcribing_target = ""
+            if error:
+                self.status_message = error
+                return
+            if target == "weekly":
+                self.upload_text = f"{self.upload_text.rstrip()} {text}".strip()
+            elif target == "redraft":
+                post = self._find_post(post_id)
+                if post:
+                    post.redraft_note = f"{post.redraft_note.rstrip()} {text}".strip()
 
     @rx.event
     def set_upload_post_type(self, value: str):

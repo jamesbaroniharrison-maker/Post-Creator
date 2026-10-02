@@ -6,6 +6,7 @@ import reflex as rx
 import reflex_local_auth
 
 from linkedin_content_engine.dashboard.components import PRIMARY_CTA, page_shell, stat_card, type_select
+from linkedin_content_engine.dashboard.recorder import record_button
 from linkedin_content_engine.dashboard.state import POST_TYPES, DashboardState
 
 
@@ -69,10 +70,11 @@ def _upload_box() -> rx.Component:
             rx.text_area(
                 value=DashboardState.upload_text,
                 on_change=DashboardState.set_upload_text,
-                placeholder="Write a quick note...",
+                placeholder="Write a quick note, or press Record and say it...",
                 width="100%",
                 resize="vertical",
             ),
+            record_button("weekly"),
             rx.upload(
                 rx.vstack(
                     rx.icon("upload", size=24),

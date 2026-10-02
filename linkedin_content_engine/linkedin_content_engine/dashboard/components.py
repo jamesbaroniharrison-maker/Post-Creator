@@ -4,6 +4,7 @@ import reflex as rx
 import reflex_local_auth
 
 from linkedin_content_engine.scheduling import WEEKLY_CAP
+from linkedin_content_engine.dashboard.recorder import record_button
 from linkedin_content_engine.dashboard.state import (
     POST_TYPES,
     REJECTION_REASONS,
@@ -265,6 +266,16 @@ def review_post_card(post: PostView) -> rx.Component:
                 rx.text(post.voice_delta_label, size="1", class_name="hud-muted"),
             ),
             post_editable_body(post),
+            rx.text("Redraft note (optional)", size="2", weight="medium", class_name="hud-muted"),
+            rx.text_area(
+                value=post.redraft_note,
+                on_change=lambda v: DashboardState.set_redraft_note(post.id, v),
+                placeholder="What should change? e.g. shorter, less formal, lead with the client example...",
+                width="100%",
+                min_height="70px",
+                resize="vertical",
+            ),
+            record_button("redraft", post.id),
             rx.hstack(
                 rx.button("Accept", on_click=DashboardState.accept(post.id), **PRIMARY_CTA),
                 rx.button(
