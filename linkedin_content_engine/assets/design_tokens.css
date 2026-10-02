@@ -187,6 +187,16 @@ code, .rt-Code, .hud-mono {
   padding: 0.65rem 0.85rem !important;
 }
 
+/* Text fields and select triggers have a FIXED height in Radix (~30px, ~22px at
+   size 1), so vertical padding eats the text's room and clips its top and bottom -
+   measured live: 9px left for 14px text, 1px on the small Accepted-page selects.
+   Only textareas grow, so only they keep vertical padding. */
+.rt-TextFieldRoot,
+.rt-SelectTrigger {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
 .rt-TextAreaInput {
   min-height: 140px;
   white-space: pre-wrap;
