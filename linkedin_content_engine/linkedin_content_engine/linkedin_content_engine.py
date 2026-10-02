@@ -11,11 +11,8 @@ import reflex as rx
 import reflex_local_auth
 
 from . import models  # noqa: F401 - registers tables for Alembic autogenerate
-from .dashboard.pages.accepted import accepted_page
-from .dashboard.pages.history import history_page
 from .dashboard.pages.home import home_page
-from .dashboard.pages.rejected import rejected_page
-from .dashboard.pages.review import review_page
+from .dashboard.pages.posts import posts_page
 from .dashboard.pages.settings import settings_page
 from .dashboard.pages.statistics import statistics_page
 from .dashboard.pages.topic_bank import topic_bank_page
@@ -28,11 +25,8 @@ app = rx.App(
     head_components=[rx.el.link(rel="icon", href="/logos/baroni-favicon.svg", type="image/svg+xml")],
 )
 app.add_page(home_page, route="/")
-app.add_page(review_page, route="/review")
-app.add_page(accepted_page, route="/accepted")
-app.add_page(rejected_page, route="/rejected")
+app.add_page(posts_page, route="/posts")
 app.add_page(topic_bank_page, route="/topic-bank")
-app.add_page(history_page, route="/history")
 app.add_page(statistics_page, route="/statistics")
 app.add_page(voice_page, route="/voice")
 app.add_page(settings_page, route="/settings")

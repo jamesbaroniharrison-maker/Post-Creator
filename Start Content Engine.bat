@@ -13,11 +13,14 @@ echo.
 echo ================================================================
 echo.
 
-REM --- Clear out any old server processes still holding the ports, so we always
-REM     start clean. 8000-8010, not just 8000: when 8000 is busy Reflex silently moves
-REM     the backend to 8001, 8002... and a leftover one there means two backends share
-REM     one frontend - the page talks to one while uploads/drafts go to the other. ---
-powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort (@(3000) + (8000..8010)) -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+REM --- Clear out THIS app's old server processes, so we always start clean.
+REM     8000-8010, not just 8000: when 8000 is busy Reflex silently moves the backend
+REM     to 8001, 8002... and a leftover one there means two backends share one
+REM     frontend - the page talks to one while uploads/drafts go to the other.
+REM     Only processes started from this folder are stopped, so another Reflex app
+REM     (e.g. the Ben Holmes content engine) using the same ports is left alone. ---
+set "CE_DIR=%~dp0"
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort (@(3000) + (8000..8010)) -State Listen -ErrorAction SilentlyContinue | ForEach-Object { $p = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $_.OwningProcess) -ErrorAction SilentlyContinue; if ($p -and $p.CommandLine -like ('*' + $env:CE_DIR + '*')) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue } }" >nul 2>&1
 
 REM --- Make sure Ollama (needed for drafting posts) is running ---
 echo Checking Ollama is running...

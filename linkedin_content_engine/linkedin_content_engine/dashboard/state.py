@@ -36,7 +36,9 @@ from linkedin_content_engine.drafting_engine.rotation import (
 from linkedin_content_engine.email_engine.reminder import PROMPT_POOL
 from linkedin_content_engine.email_engine.settings import get_email_settings, save_email_settings
 from linkedin_content_engine.holidays import holiday_for_date
+from linkedin_content_engine.calendar_engine.pipeline import try_link_now
 from linkedin_content_engine.models import (
+    CalendarEvent,
     ForcedTopic,
     JobRun,
     PlannedNote,
@@ -171,6 +173,7 @@ class BankView(pydantic.BaseModel):
     # id list, since Reflex 0.9.8's Var API has no list .contains() to check
     # membership from inside a rx.foreach render function.
     is_selected: bool = False
+    occasion_label: str = ""  # set when tied to a calendar occasion, e.g. "AI Appreciation Day, 16 Jul"
 
 
 class QueuedDraftView(pydantic.BaseModel):
@@ -195,6 +198,47 @@ class QueuedDraftView(pydantic.BaseModel):
     length_bucket: str = AUTO_SENTINEL
     structural_format: str = AUTO_SENTINEL
     media_pairing: str = AUTO_SENTINEL
+
+
+class CalendarEventView(pydantic.BaseModel):
+    """One occasion on the Posts > Calendar tab. `included` mirrors the database
+    (None = not reviewed yet); nothing acts on an occasion until it's ticked Yes."""
+
+    id: int
+    name: str
+    category_label: str = ""
+    date_label: str = ""  # "16 Jul", or "1 Oct - 31 Oct" for a range
+    start: str = ""  # "YYYY-MM-DD", for matching plan-ahead days
+    end: str = ""
+    angle_notes: str = ""
+    source: str = "seed"
+    included: bool | None = None
+    # "yes" / "no" / "" - what the buttons compare against. A None-vs-False check on
+    # `included` misfired in the browser (undecided rows showed Skip as chosen).
+    decision: str = ""
+    suggestion_made: bool = False
+    month_key: str = ""  # "2026-10"
+    month_label: str = ""  # "October 2026"
+
+
+def _calendar_row_to_view(e: CalendarEvent) -> CalendarEventView:
+    start, end = as_utc(e.date), as_utc(e.end_date or e.date)
+    label = start.strftime("%d %b") if start.date() == end.date() else f"{start:%d %b} - {end:%d %b}"
+    return CalendarEventView(
+        id=e.id,
+        name=e.name,
+        category_label=humanize(e.category),
+        date_label=label,
+        start=start.strftime("%Y-%m-%d"),
+        end=end.strftime("%Y-%m-%d"),
+        angle_notes=e.angle_notes,
+        source=e.source,
+        included=e.included,
+        decision="" if e.included is None else ("yes" if e.included else "no"),
+        suggestion_made=e.suggestion_made,
+        month_key=start.strftime("%Y-%m"),
+        month_label=start.strftime("%B %Y"),
+    )
 
 
 class ForcedTopicView(pydantic.BaseModel):
@@ -266,6 +310,9 @@ class DayPlanView(pydantic.BaseModel):
     is_today: bool
     note: PlannedNoteView | None = None
     holiday_name: str = ""  # e.g. "Halloween" - request: "sync with like holidays"
+    scheduled_label: str = ""  # the weekly schedule's type for this weekday, e.g. "Ai Commentary"
+    is_no_post_day: bool = False
+    occasion_names: list[str] = []  # Yes-ticked calendar occasions covering this date
 
 
 class WeekPlanView(pydantic.BaseModel):
@@ -500,6 +547,11 @@ class DashboardState(rx.State):
     # instead: one shared target date, a "Link to day" button per bank row).
     link_target_date: str = ""
 
+    # Calendar of yearly occasions (calendar_engine/) and the Posts page's sub-tabs.
+    calendar_events: list[CalendarEventView] = []
+    calendar_month_offset: int = 0
+    posts_tab: str = "review"
+
     # ---- loading ----
 
     @rx.event
@@ -517,6 +569,7 @@ class DashboardState(rx.State):
             self._reload_email_settings()
             self._reload_weekly_template()
             self._reload_planned_notes()
+            self._reload_calendar()
             self._reload_stats()
             self._reload_job_status()
             self._reload_voice()
@@ -630,10 +683,21 @@ class DashboardState(rx.State):
         # Pre-seed the draft-input dicts for every date across the month, so the
         # frontend never indexes a missing dict key for a day with no note yet.
         self.note_drafts = {**{d: "" for d in dates}, **self.note_drafts}
+        # Each day's post type defaults to the weekly schedule (Settings > Weekly Plan
+        # Template), not a blanket personal_reflection.
         self.note_draft_post_types = {
-            **{d: "personal_reflection" for d in dates},
+            **{d: self._template_default_type(d) for d in dates},
             **self.note_draft_post_types,
         }
+
+    def _template_type_for(self, date_str: str) -> str:
+        """The weekly schedule's post type (or "no_post") for this date's weekday."""
+        weekday = date.fromisoformat(date_str).weekday()
+        return getattr(self, f"wt_{_WEEKDAY_FIELDS[weekday]}")
+
+    def _template_default_type(self, date_str: str) -> str:
+        planned = self._template_type_for(date_str)
+        return planned if planned in POST_TYPES else "personal_reflection"
 
     @rx.var
     def month_plan(self) -> list[WeekPlanView]:
@@ -652,6 +716,7 @@ class DashboardState(rx.State):
             for d in week_dates(monday):
                 dt = datetime.strptime(d, "%Y-%m-%d")
                 holiday = holiday_for_date(d)
+                planned = self._template_type_for(d)
                 days.append(
                     DayPlanView(
                         date=d,
@@ -659,6 +724,11 @@ class DashboardState(rx.State):
                         is_today=d == today,
                         note=by_date.get(d),
                         holiday_name=holiday[0] if holiday else "",
+                        scheduled_label="No post" if planned == "no_post" else humanize(planned),
+                        is_no_post_day=planned == "no_post",
+                        occasion_names=[
+                            e.name for e in self.calendar_events if e.included is True and e.start <= d <= e.end
+                        ],
                     )
                 )
             label = "This week" if monday == current_week_label() else f"Week of {monday}"
@@ -748,12 +818,25 @@ class DashboardState(rx.State):
 
     def _reload_bank(self):
         with rx.session(url=config.db_url) as session:
+            # Calendar-linked findings first (soonest occasion first), so a ticked
+            # occasion's story is always visible even if it's older than the top 20.
+            linked = session.exec(
+                sqlmodel.select(TopicBank, CalendarEvent)
+                .join(CalendarEvent, TopicBank.calendar_event_id == CalendarEvent.id)
+                .where(TopicBank.used == False)  # noqa: E712
+                .order_by(sqlmodel.col(CalendarEvent.date).asc())
+            ).all()
             rows = session.exec(
                 sqlmodel.select(TopicBank)
-                .where(TopicBank.used == False, TopicBank.tier != "discard")  # noqa: E712
+                .where(
+                    TopicBank.used == False,  # noqa: E712
+                    TopicBank.tier != "discard",
+                    TopicBank.calendar_event_id == None,  # noqa: E711
+                )
                 .order_by(sqlmodel.col(TopicBank.tier).asc(), sqlmodel.col(TopicBank.date_found).desc())
                 .limit(20)
             ).all()
+        pairs = [(r, f"{e.name}, {as_utc(e.date).strftime('%d %b')}") for r, e in linked] + [(r, "") for r in rows]
         self.bank_rows = [
             BankView(
                 id=r.id,
@@ -764,9 +847,82 @@ class DashboardState(rx.State):
                 tier_label=humanize(r.tier),
                 category=r.category,
                 category_label=humanize(r.category),
+                occasion_label=occasion,
             )
-            for r in rows
+            for r, occasion in pairs
         ]
+
+    def _reload_calendar(self):
+        with rx.session(url=config.db_url) as session:
+            rows = session.exec(
+                sqlmodel.select(CalendarEvent).order_by(sqlmodel.col(CalendarEvent.date).asc())
+            ).all()
+        self.calendar_events = [_calendar_row_to_view(r) for r in rows]
+
+    @rx.var
+    def calendar_month_options(self) -> list[dict[str, str]]:
+        """Every month that has occasions, in order - from today to year end at first,
+        then a full year ahead once the November plan has run."""
+        seen: dict[str, str] = {}
+        for e in self.calendar_events:
+            seen.setdefault(e.month_key, e.month_label)
+        return [{"key": k, "label": v} for k, v in seen.items()]
+
+    @rx.var
+    def selected_calendar_month(self) -> str:
+        options = self.calendar_month_options
+        if not options:
+            return ""
+        return options[min(max(self.calendar_month_offset, 0), len(options) - 1)]["key"]
+
+    @rx.var
+    def calendar_events_for_month(self) -> list[CalendarEventView]:
+        return [e for e in self.calendar_events if e.month_key == self.selected_calendar_month]
+
+    @rx.event
+    def set_calendar_month_offset(self, offset: int):
+        self.calendar_month_offset = offset
+
+    @rx.event
+    def set_posts_tab(self, value: str):
+        self.posts_tab = value
+
+    @rx.event(background=True)
+    async def set_calendar_event_included(self, event_id: int, value: bool):
+        """Your Yes/No tick. A Yes links the occasion to a real Topic Bank story (or
+        banks its own angle) straight away if it's within 45 days - background,
+        because matching may embed recent stories the first time."""
+        with rx.session(url=config.db_url) as session:
+            row = session.get(CalendarEvent, event_id)
+            if row:
+                row.included = value
+                session.add(row)
+                session.commit()
+        async with self:
+            self._reload_calendar()
+            if value:
+                self.status_message = "Checking the Topic Bank for a story that fits this occasion..."
+        if not value:
+            return
+
+        try:
+            result = try_link_now(event_id)
+        except Exception as exc:  # noqa: BLE001
+            result = {"status": "error", "reason": str(exc)}
+
+        async with self:
+            self._reload_calendar()
+            self._reload_bank()
+            if result.get("status") == "ok" and result.get("outcome") == "linked":
+                self.status_message = "Linked to a real story - it's at the top of the Topic Bank."
+            elif result.get("status") == "ok":
+                self.status_message = "No matching story yet, so its angle is banked at the top of the Topic Bank."
+            elif result.get("status") == "too_early":
+                self.status_message = "Saved. It's more than 45 days away, so it'll link automatically closer to the date."
+            elif result.get("status") == "error":
+                self.status_message = f"Saved, but linking failed: {result['reason']}"
+            else:
+                self.status_message = "Saved."
 
     def _reload_forced_topics(self):
         with rx.session(url=config.db_url) as session:
@@ -912,6 +1068,8 @@ class DashboardState(rx.State):
             row.recommend_holidays = self.wt_recommend_holidays
             session.add(row)
             session.commit()
+        # Plan ahead's per-day dropdowns follow the schedule, so re-seed them from it.
+        self.note_draft_post_types = {d: self._template_default_type(d) for d in self.note_draft_post_types}
         self.status_message = "Weekly plan saved."
 
     @rx.event
@@ -1393,7 +1551,7 @@ class DashboardState(rx.State):
                     )
                 )
             session.commit()
-        self.status_message = f"Linked to {target_date} - see Plan ahead on the Accepted page."
+        self.status_message = f"Linked to {target_date} - see Posts > Plan ahead."
         self._reload_planned_notes()
 
     @rx.event(background=True)

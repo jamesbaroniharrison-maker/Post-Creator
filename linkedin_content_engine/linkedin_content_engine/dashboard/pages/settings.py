@@ -200,9 +200,9 @@ def _weekly_plan_card() -> rx.Component:
         rx.vstack(
             rx.heading("Weekly Plan Template", size="5"),
             rx.text(
-                "The default post type for each day of the week - used by \"Plan this "
-                "week\" on the Accepted page. Never overrides a day you've already "
-                "pencilled a note on.",
+                "The default post type for each day of the week - it sets each day in "
+                "Posts > Plan ahead, and \"Plan this week\" drafts from it. Never overrides "
+                "a day you've already pencilled a note on.",
                 size="2",
                 class_name="hud-muted",
             ),

@@ -20,6 +20,7 @@ import argparse
 import logging
 from pathlib import Path
 
+from linkedin_content_engine.calendar_engine.pipeline import run_calendar_engine
 from linkedin_content_engine.research_cron.pipeline import run_daily_research
 
 LOG_FILE = Path(__file__).resolve().parents[2] / "research_cron.log"
@@ -43,3 +44,11 @@ if __name__ == "__main__":
         raise
     logging.info("FINISHED: %s", result)
     print(result)
+
+    # Calendar runs after research so today's findings can be linked to occasions,
+    # and separately caught so a calendar problem never fails the research job.
+    try:
+        calendar_result = run_calendar_engine()
+        logging.info("CALENDAR: %s", calendar_result)
+    except Exception:
+        logging.exception("CALENDAR FAILED")

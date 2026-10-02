@@ -34,7 +34,13 @@ def _bank_row_card(row: BankView) -> rx.Component:
                         color_scheme=rx.match(row.tier, ("high", "green"), ("mid", "amber"), "gray"),
                     ),
                     rx.badge(row.category_label, variant="outline"),
+                    rx.cond(
+                        row.occasion_label != "",
+                        rx.badge(rx.icon("calendar", size=12), "For " + row.occasion_label, variant="soft", color_scheme="green"),
+                        rx.fragment(),
+                    ),
                     spacing="2",
+                    wrap="wrap",
                 ),
                 rx.text(row.summary, size="2"),
                 rx.link(row.source_title, href=row.source_url, size="1", is_external=True),
@@ -83,7 +89,7 @@ def _link_date_picker() -> rx.Component:
                 rx.text("Link topics to this date", size="2", weight="medium"),
                 rx.text(
                     "Pick a date, then click \"Link to day\" on any topic below - it'll show up "
-                    "on the Accepted page's Plan ahead calendar for that date.",
+                    "in Posts > Plan ahead on that date.",
                     size="1",
                     class_name="hud-muted",
                 ),

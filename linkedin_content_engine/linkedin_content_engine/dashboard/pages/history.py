@@ -2,9 +2,8 @@
 something as a fresh draft for a thin week."""
 
 import reflex as rx
-import reflex_local_auth
 
-from linkedin_content_engine.dashboard.components import SECONDARY_CTA, empty_state, page_shell, status_pill
+from linkedin_content_engine.dashboard.components import SECONDARY_CTA, empty_state, status_pill
 from linkedin_content_engine.dashboard.state import HISTORY_WEEKS_LIMIT, DashboardState, PostView
 
 
@@ -44,8 +43,7 @@ def _week_group(entry: rx.Var) -> rx.Component:
     )
 
 
-@reflex_local_auth.require_login
-def history_page() -> rx.Component:
+def history_section() -> rx.Component:
     body = rx.cond(
         DashboardState.history_by_week.length() > 0,
         rx.vstack(rx.foreach(DashboardState.history_by_week, _week_group), spacing="5", width="100%"),
@@ -55,10 +53,7 @@ def history_page() -> rx.Component:
             "Once a week's posts are through, they'll show up here.",
         ),
     )
-    return page_shell(
-        "/history",
-        rx.vstack(
-            rx.heading("Past Weeks", size="5"),
+    return rx.vstack(
             rx.text(
                 f"Everything from the last {HISTORY_WEEKS_LIMIT} weeks, whatever happened to it. "
                 'Spot a thin week? Click "Reuse as new post" to line up a catch-up draft.',
@@ -68,5 +63,4 @@ def history_page() -> rx.Component:
             body,
             spacing="4",
             width="100%",
-        ),
-    )
+        )

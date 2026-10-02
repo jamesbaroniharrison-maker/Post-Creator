@@ -148,9 +148,15 @@ matching module:
 
 ## Architecture notes worth keeping in mind
 
-- Dashboard is split into 7 focused pages under `dashboard/pages/` (Home, Review,
-  Accepted, Rejected, Topic Bank, Past Weeks, Settings), sharing one `DashboardState`
-  and a `page_shell()` wrapper (`dashboard/components.py`).
+- Dashboard nav is 6 tabs: Home, Posts, Topic Bank, Statistics, Voice, Settings,
+  sharing one `DashboardState` and a `page_shell()` wrapper (`dashboard/components.py`).
+  Posts (`pages/posts.py`) holds sub-tabs Review / Accepted / Rejected / Past weeks /
+  Plan ahead / Calendar - each a `*_section()` from its own module.
+- Calendar (`calendar_engine/`, ported from the Ben Holmes content engine, AI-focused):
+  code-computed occasions (`events_seed.py`) + a yearly grounded research pass for
+  moving dates (`discovery.py`); ticking Yes links an occasion to a real Topic Bank story
+  by embedding similarity or banks its angle. Runs from the 7am cron after research.
+- Plan ahead days follow the Settings weekly template, not a fixed default.
 - `scheduling.py` auto-assigns approved posts to a `scheduled_week` (Monday date
   string), filling the current week to a cap before spilling into the next; runs on
   every accept and every dashboard load.

@@ -44,11 +44,8 @@ def type_select(options: list[str], value, on_change, **props) -> rx.Component:
 
 NAV_ITEMS = [
     ("Home", "/"),
-    ("Review", "/review"),
-    ("Accepted", "/accepted"),
-    ("Rejected", "/rejected"),
+    ("Posts", "/posts"),
     ("Topic Bank", "/topic-bank"),
-    ("Past Weeks", "/history"),
     ("Statistics", "/statistics"),
     ("Voice", "/voice"),
     ("Settings", "/settings"),
@@ -432,10 +429,20 @@ def day_plan_cell(day: DayPlanView) -> rx.Component:
                 align="center",
                 wrap="wrap",
             ),
+            rx.badge(
+                rx.cond(day.is_no_post_day, "No post planned", "Planned: " + day.scheduled_label),
+                variant=rx.cond(day.is_no_post_day, "outline", "soft"),
+                color_scheme="bronze",
+                size="1",
+            ),
             rx.cond(
                 day.holiday_name != "",
                 rx.badge(f"🎉 {day.holiday_name}", variant="soft", size="1", color_scheme="amber"),
                 rx.fragment(),
+            ),
+            rx.foreach(
+                day.occasion_names,
+                lambda name: rx.badge(rx.icon("calendar", size=12), name, variant="soft", size="1", color_scheme="green"),
             ),
             rx.cond(
                 day.note != None,  # noqa: E711 - rx.Var equality, not a Python None-check

@@ -6,6 +6,22 @@ import reflex as rx
 import sqlmodel
 
 
+class CalendarEvent(rx.Model, table=True):
+    """A yearly occasion worth posting around (AI/tech days, conferences, seasonal
+    dates). Ported from the Ben Holmes content engine's calendar, re-pointed at AI.
+    A suggestion only: nothing acts on it until it's ticked Yes (`included` True)."""
+
+    date: datetime  # the day, or the first day of a multi-day occasion
+    end_date: datetime | None = None
+    name: str
+    category: str  # ai / tech / data / careers / general
+    angle_notes: str = ""  # why it matters to an AI-focused LinkedIn - used as the fallback topic
+    year: int
+    source: str = "seed"  # seed (code-computed dates) / researched (found by discovery.py)
+    included: bool | None = None  # your tick: None = not reviewed yet
+    suggestion_made: bool = False  # already linked to / banked as a topic
+
+
 class TopicBank(rx.Model, table=True):
     """Daily research findings, scored and banked (spec Â§3a)."""
 
@@ -17,6 +33,9 @@ class TopicBank(rx.Model, table=True):
     category: str  # ai / market
     used: bool = False
     date_used: datetime | None = None
+    # Set when this finding (or a banked occasion angle) is tied to a calendar occasion.
+    calendar_event_id: int | None = sqlmodel.Field(default=None, foreign_key="calendarevent.id")
+    embedding: str | None = None  # JSON vector, cached the first time calendar matching needs it
 
 
 class Post(rx.Model, table=True):
