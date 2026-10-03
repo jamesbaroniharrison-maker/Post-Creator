@@ -40,10 +40,10 @@ WHEN: dict[str, str] = {
 PAIRING_TEMPLATES: dict[str, list[str]] = {
     "carousel": ["how_it_works", "case_study", "news_breakdown", "lessons_learned", "build_log"],
     "infographic": ["list", "before_after", "myth_fact", "this_vs_that", "tool_spotlight", "timeline", "big_number"],
-    "chart": ["big_number", "stat_context", "before_after", "milestone", "timeline"],
+    "chart": ["big_number", "stat_context", "before_after", "milestone", "timeline", "announcement"],
     "candid_photo": ["photo_intro", "statement", "quote", "milestone"],
-    "screenshot": ["statement", "quote", "hot_take", "open_question", "tool_spotlight"],
-    "text_only": ["statement", "quote", "hot_take", "open_question", "list"],  # only when you ask for a visual by hand
+    "screenshot": ["statement", "quote", "hot_take", "open_question", "tool_spotlight", "announcement"],
+    "text_only": ["statement", "quote", "hot_take", "open_question", "list", "announcement"],  # only when you ask for a visual by hand
 }
 
 

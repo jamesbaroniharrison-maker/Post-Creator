@@ -1543,3 +1543,9 @@ numbers. App compiles and serves (`/posts` 200).
   safe to run twice. No code references the folder name.
 
 Before any git push, run /brain-sync to keep PROJECT_BRAIN.md current.
+- **Announcement design was unreachable** (3 Oct 2026): it was in no `PAIRING_TEMPLATES`
+  entry, so the system could never pick it. Now offered on `screenshot`, `chart` and
+  `text_only` pairings (and its `_dark` version via `_root`). Verified: a BOF launch post
+  filled it correctly ("Two pilot spots for this quarter." + scope-call button). No new
+  templates are planned for now (a story single, a screenshot frame and a weekly recap
+  carousel were identified as gaps and deliberately deferred).
