@@ -4,7 +4,7 @@
 **Repo:** https://github.com/jamesbaroniharrison-maker/Post-Creator
 **Status:** Active
 **Last updated:** 2026-10-03
-**Last synced commit:** c6fb147
+**Last synced commit:** d6e4b6b
 
 ## 1. Summary
 Personal, semi-automated LinkedIn content engine for James / Baroni Applied Intelligence. A daily cron researches AI and market news into a Topic Bank. Posts are then drafted in James's voice: a stylometric voice profile plus a hand-authored persona, with CPIO/THBM rotation, a privacy scrub and audit gates. James reviews every draft (Accept / Redraft / Reject) in a Reflex dashboard, and branded post visuals are rendered from Claude Design HTML templates. Nothing publishes without a human click. It runs on localhost, with remote access over Tailscale and a login.
@@ -148,6 +148,8 @@ Whole engine: voice_engine stylometry, drafting pipeline (prompt skeleton, rotat
 - Ghost listeners on 8000-8005 push the backend to 8006; a reboot clears them. The Ben Holmes app uses 3001/8200.
 - Small models miss rules bundled in busy prompts, so split each rule into its own narrow call (see Section 6.5).
 - Corpus is thin on real posts (3 `linkedin_post`), so Delta on the `linkedin_post` register is noisy.
+- **A design absent from every `PAIRING_TEMPLATES` entry (`visuals_engine\spec.py`) is silently never chosen.** `announcement` was in none, so it was unreachable until 2026-10-03. When adding a design, add its base key to at least one pairing and check with `candidate_templates()`.
 
 ## 11. Changelog
+- 2026-10-03 | d6e4b6b | `announcement` design added to the `screenshot`, `chart` and `text_only` pairings (was unreachable). Gotcha added to Section 10. All Section 3-8 paths and symbols re-verified; Cold Outreach path references unchanged.
 - 2026-10-03 | c6fb147 | First Brain. Voice corpus, persona, components and client playbook documented. Folder rename pending.
