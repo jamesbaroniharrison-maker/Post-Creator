@@ -1,7 +1,6 @@
 # PROJECT BRAIN: LinkedIn Post Generator
 
-**Path:** D:\Work\AI Projects\LinkedIn Post Generator\Post-Creator  (currently still `D:\Work\AI Projects\New folder\Post-Creator` until the rename .bat is run)
-**Repo:** https://github.com/jamesbaroniharrison-maker/Post-Creator
+**Path:** D:\Work\AI Projects\LinkedIn Post Generator\Post-Creator**Repo:** https://github.com/jamesbaroniharrison-maker/Post-Creator
 **Status:** Active
 **Last updated:** 2026-10-03
 **Last synced commit:** d6e4b6b
