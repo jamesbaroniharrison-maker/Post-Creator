@@ -81,7 +81,7 @@ Breaking-change notes: renaming `voicesample` columns or `source_type` values br
   - Persona and banned phrases: `...\drafting_engine\persona.py`. One list, so no drift.
   - Biography: `...\linkedin_content_engine\context\about_me.md`
 - **Breaks if moved/renamed:**
-  - **Cold Outreach** mentions `AI Projects/New folder/Post-Creator/linkedin_content_engine/` in `HANDOFF.md` (line ~186) and `DESIGN.md` (line ~571), and its `voice\voice_card.md` was derived from this corpus. Those doc paths go stale when "New folder" is renamed.
+  - **Cold Outreach** mentions `AI Projects/LinkedIn Post Generator/Post-Creator/linkedin_content_engine/` (updated post-rename) in `HANDOFF.md` (line ~186) and `DESIGN.md` (line ~571), and its `voice\voice_card.md` was derived from this corpus. Those doc paths go stale when "New folder" is renamed.
   - Scheduled tasks hold absolute paths. Re-run `register_*.ps1` after any move (the rename .bat does this).
   - Claude Code project memory is keyed by folder path (the rename .bat copies it).
 
@@ -153,3 +153,4 @@ Whole engine: voice_engine stylometry, drafting pipeline (prompt skeleton, rotat
 ## 11. Changelog
 - 2026-10-03 | d6e4b6b | `announcement` design added to the `screenshot`, `chart` and `text_only` pairings (was unreachable). Gotcha added to Section 10. All Section 3-8 paths and symbols re-verified; Cold Outreach path references unchanged.
 - 2026-10-03 | c6fb147 | First Brain. Voice corpus, persona, components and client playbook documented. Folder rename pending.
+- 2026-10-03 | fc9dde5 | Folder renamed to LinkedIn Post Generator; research cron task still to be re-registered (run `AI Projects\Fix research task.bat`). register_scheduled_task.ps1 now uses -Force.

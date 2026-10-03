@@ -67,6 +67,7 @@ Register-ScheduledTask `
     -Settings $Settings `
     -Description "Runs the LinkedIn content engine's daily research cron (spec section 3a/5). Idempotent per day." `
     -RunLevel Limited `
+    -Force `
     -ErrorAction Stop
 
 Write-Host "Registered 'Content Engine Daily Research Cron' - daily at $DailyTime, plus at log-on as a catch-up."
