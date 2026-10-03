@@ -52,6 +52,7 @@ def make_visual_for_post(post_id: int, template_key: str | None = None, force: b
             if bank:
                 source_text = f"{bank.source_title}\n{bank.summary}"
         post_text, media_pairing, photo = post.draft_text, post.media_pairing, post.source_photo or ""
+        funnel_stage = post.funnel_stage
         if has_photo:
             media_pairing = "candid_photo"  # your own photo beats whatever the rotation picked
         # Templates on the last 3 posts that had a visual - rotated out so the feed
@@ -67,7 +68,8 @@ def make_visual_for_post(post_id: int, template_key: str | None = None, force: b
 
     try:
         result = make_visual(post_text, source_text, media_pairing, visuals_dir(post_id), photo=photo,
-                             template_key=template_key, recent_templates=recent, dark=dark)
+                             template_key=template_key, recent_templates=recent, dark=dark,
+                             funnel_stage=funnel_stage)
         fields = {
             "visual_template": result["template"],
             "visual_slots": json.dumps(result["slots"]),

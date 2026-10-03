@@ -1506,3 +1506,15 @@ Verified: all 52 rendered at min and max sample text with the correct slide coun
 Live AI fills: milestone light/dark (real counts 3/8 from the post), a 5-slide
 news_breakdown carousel with PDF, statement_dark - no copied lines, no invented
 numbers. App compiles and serves (`/posts` 200).
+- **Scope-call button on BOF posts only** (3 Oct 2026, request "ye have it there"):
+  `fill.py` picks `_CTA_BOF` (a free 20-min scope call with Baroni Applied Intelligence
+  is allowed; never a price or discount) when the post's `funnel_stage` is BOF,
+  otherwise `_CTA_REPLY` (reply/follow only). On BOF the offer text is added to the
+  allowed-numbers source, so the button's "20" passes. Two more over-strict checks
+  fixed while testing it live: `cta_*` fields are exempt from the copy-from-example
+  check (generic invitations, not claims), and `*_no` step-number fields from the
+  number check. New prompt rule: never calculate, convert or round a figure - the
+  model had derived "2.5 hours saved" from "3 hours to 30 minutes", correctly
+  rejected by the number check. Verified live on how_it_works: TOF -> "Tell me your
+  version", BOF -> "Free 20-min scope call", dashboard rows "3 hours"/"30 minutes"
+  copied exactly.

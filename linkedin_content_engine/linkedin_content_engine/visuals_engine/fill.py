@@ -24,6 +24,20 @@ _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$")
 _NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)?")
 _EM_DASH_RE = re.compile(r"\s*—\s*")
 
+# Calls to action: a free scope call only on bottom-of-funnel (BOF) posts - the ones
+# the rotation assigns to converting interest (request: allow it "on business posts").
+# Everything else invites a reply or a follow.
+_CTA_REPLY = (
+    'Call-to-action buttons invite a reply or a follow (e.g. "Tell me your version", '
+    '"Follow for the next build"), never a sales offer, booking, or link the post '
+    "doesn't already mention."
+)
+_CTA_BOF = (
+    "Call-to-action buttons may invite a free 20-minute scope call with Baroni Applied "
+    'Intelligence (e.g. "Book a free 20-min scope call"), or a reply or a follow. Never a '
+    "price, discount, or any other offer."
+)
+
 _SYSTEM_PROMPT = """You turn a finished LinkedIn post into the words for ONE branded image. \
 You do not design anything - the layouts already exist. You pick which layout suits the \
 post, then fill its text fields.
@@ -32,13 +46,15 @@ Rules:
 - Every word comes from the post's own message. Shorter and punchier than the post, but \
 never a new claim, story, or opinion the post doesn't make.
 - NEVER put a number on the image that isn't written in the post or source text below. \
-If the post has no real figures, don't pick a layout that needs one.
+If the post has no real figures, don't pick a layout that needs one. Never calculate, \
+convert or round a figure (no "2.5 hours saved" from "3 hours down to 30 minutes") - \
+copy numbers exactly as written.
 - The "_gold" fields are the payoff: the last few words that land the point, shown in \
 gold italics. The plain headline sets it up; the gold part finishes the sentence.
 - Respect every word limit in the layout's shape. Fewer words is always better.
 - British spelling. No em dashes. No hashtags, no emoji, no question marks.
 - Labels are short category tags (e.g. POINT OF VIEW, FIELD NOTES), not sentences.
-- Call-to-action buttons invite a reply or a follow (e.g. "Tell me your version", "Follow for the next build"), never a sales offer, booking, or link the post doesn't already mention.
+- {cta_rule}
 - Fill every field in the shape. Lists must have an item count inside the range shown.
 - Each layout comes with an EXAMPLE of its style (capitals, length, tone). Match the \
 style only - never reuse the example's words, names or numbers.
@@ -109,7 +125,20 @@ def _sample_lines(key: str) -> set[str]:
 
 # Tags, buttons, dates and sources - reusing the sample's wording there is fine
 # ("WHAT I LEARNED", "Send me a message"); only content lines can carry a claim.
-_TAG_FIELD = re.compile(r"label|tag|note|date|source|status|prompt|button|count|_no$|_time$")
+_TAG_FIELD = re.compile(r"label|tag|note|date|source|status|prompt|button|^cta_|count|_no$|_time$")
+# Step-number fields ("s1_no": "1") are the design's own numbering, not a figure.
+_STEP_NO_FIELD = re.compile(r"_no$")
+
+
+def _keyed_strings(value, key=""):
+    if isinstance(value, str):
+        yield key, value
+    elif isinstance(value, dict):
+        for k, v in value.items():
+            yield from _keyed_strings(v, k)
+    elif isinstance(value, list):
+        for v in value:
+            yield from _keyed_strings(v, key)
 
 
 def _lines(slots: dict):
@@ -201,7 +230,7 @@ def check_slots(template_key: str, slots: dict, source_text: str) -> list[str]:
 
     allowed = {_norm_num(t) for t in _NUMBER_RE.findall(source_text)}
     invented = sorted({
-        t for s in _strings(slots) for t in _NUMBER_RE.findall(s)
+        t for k, s in _keyed_strings(slots) if not _STEP_NO_FIELD.search(k) for t in _NUMBER_RE.findall(s)
         if _norm_num(t) not in allowed and not re.fullmatch(r"0\d", t)  # "01", "02": step numbering, not a claim
     })
     if invented:
@@ -212,7 +241,7 @@ def check_slots(template_key: str, slots: dict, source_text: str) -> list[str]:
     return problems
 
 
-def _ask(candidates: list[str], post_text: str, source_text: str, extra: str = "") -> dict:
+def _ask(candidates: list[str], post_text: str, source_text: str, extra: str = "", cta_rule: str = _CTA_REPLY) -> dict:
     options = "\n".join(
         f'- "{k}" ({CATALOG[k].name}): {CATALOG[k].when}\n  Shape: {CATALOG[k].shape}\n'
         f"  EXAMPLE (style only): {json.dumps(_example(k), ensure_ascii=False)}"
@@ -221,14 +250,16 @@ def _ask(candidates: list[str], post_text: str, source_text: str, extra: str = "
     user = f"Post:\n{post_text}\n\nSource text (the only other place numbers may come from):\n{source_text or '(none)'}"
     if extra:
         user += f"\n\n{extra}"
-    content = _FENCE_RE.sub("", _chat(_SYSTEM_PROMPT.format(options=options), user).strip())
+    content = _FENCE_RE.sub("", _chat(_SYSTEM_PROMPT.format(options=options, cta_rule=cta_rule), user).strip())
     data = json.loads(content)
     if not isinstance(data, dict) or not isinstance(data.get("slots"), dict):
         raise VisualError("model returned no slots")
     return data
 
 
-def _fill(candidates: list[str], post_text: str, source_text: str, extra: str = "") -> tuple[str, dict, list[str]]:
+def _fill(
+    candidates: list[str], post_text: str, source_text: str, extra: str = "", cta_rule: str = _CTA_REPLY
+) -> tuple[str, dict, list[str]]:
     """Ask, check, and on failure ask once more with the problems listed."""
     problems: list[str] = []
     key, slots = candidates[0], {}
@@ -239,7 +270,7 @@ def _fill(candidates: list[str], post_text: str, source_text: str, extra: str = 
                 f'Your last answer (layout "{key}") had these problems - fix every one:\n- ' + "\n- ".join(problems)
             )
         try:
-            data = _ask(candidates, post_text, source_text, note)
+            data = _ask(candidates, post_text, source_text, note, cta_rule)
         except (json.JSONDecodeError, VisualError) as exc:
             problems = [f"the response wasn't valid JSON with a slots object ({exc})"]
             continue
@@ -260,6 +291,7 @@ def make_visual(
     template_key: str | None = None,
     recent_templates: set[str] | None = None,
     dark: bool | None = None,
+    funnel_stage: str | None = None,
 ) -> dict:
     """Fill and render one visual for a post.
 
@@ -274,11 +306,14 @@ def make_visual(
         candidates = candidate_templates(media_pairing, has_photo, recent_templates, dark)
     source_all = f"{post_text}\n{source_text}"
 
-    key, slots, problems = _fill(candidates, post_text, source_all)
+    cta = _CTA_BOF if funnel_stage == "BOF" else _CTA_REPLY
+    if funnel_stage == "BOF":
+        source_all += "\nOffer: a free 20-minute scope call."  # so the button's "20" isn't flagged as invented
+    key, slots, problems = _fill(candidates, post_text, source_all, cta_rule=cta)
     simplest = "statement_dark" if dark else "statement"
     if problems and candidates != [simplest] and not template_key:
         # Fall back to the simplest layout before giving up - one headline, nothing to count.
-        key, slots, problems = _fill([simplest], post_text, source_all)
+        key, slots, problems = _fill([simplest], post_text, source_all, cta_rule=cta)
     if problems:
         raise VisualError("; ".join(problems))
 
@@ -297,7 +332,7 @@ def make_visual(
             f"Keep the layout \"{key}\" and the same message, but this text didn't fit on the "
             f"image - make it noticeably shorter: {too_long}"
         )
-        key2, slots2, problems2 = _fill([key], post_text, source_all, shorter)
+        key2, slots2, problems2 = _fill([key], post_text, source_all, shorter, cta_rule=cta)
         if not problems2:
             retry = _render(slots2)  # fresh file names, so both sets sit side by side for now
             keep, drop = (retry, result) if len(retry["overflow"]) < len(result["overflow"]) else (result, retry)
