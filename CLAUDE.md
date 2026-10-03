@@ -1541,3 +1541,5 @@ numbers. App compiles and serves (`/posts` 200).
   research time limit), and copies Claude Code's project memory dir to the new
   path-derived name. Dry-run tested against a temp folder: renames, copies memory,
   safe to run twice. No code references the folder name.
+
+Before any git push, run /brain-sync to keep PROJECT_BRAIN.md current.
