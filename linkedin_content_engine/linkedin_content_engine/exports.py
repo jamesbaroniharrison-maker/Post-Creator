@@ -23,6 +23,8 @@ from rxconfig import config
 from linkedin_content_engine.models import Post
 
 EXPORTS_DIR = pathlib.Path(__file__).resolve().parent.parent / "exports"
+# The slot that best names what a visual is about, in order of preference.
+_TOPIC_FIELDS = ["headline", "cover_headline", "project_name", "take", "quote", "question", "myth", "tool_name", "stat_desc"]
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 
@@ -46,7 +48,7 @@ def bundle_name(post: Post) -> str:
     if post.visual_slots:
         try:
             slots = json.loads(post.visual_slots)
-            topic = slots.get("headline") or slots.get("quote") or slots.get("myth") or topic
+            topic = next((slots[k] for k in _TOPIC_FIELDS if isinstance(slots.get(k), str) and slots[k]), topic)
         except json.JSONDecodeError:
             pass
     when = post_date(post) or date.today()

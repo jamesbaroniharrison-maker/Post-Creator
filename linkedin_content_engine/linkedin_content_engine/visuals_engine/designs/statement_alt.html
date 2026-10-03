@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Baroni post · statement_alt</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+
+/* ---- slide themes: layout is identical, only these variables change ---- */
+.slide{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+.slide *{box-sizing:border-box}
+.slide.light{--bg:#f6f2e9;--bg2:#ece6d8;--ink:#1b1f1a;--soft:#4d4c43;--mute:#6b695f;--rule:#d8d0bf;--gold:#9a7437;--gold2:#7d5c2a;--block:#1b1f1a;--sage:#3f6b4c;--tint:rgba(154,116,55,0.08)}
+.slide.dark{--bg:#1b1f1a;--bg2:#242923;--ink:#ece7dc;--soft:#b4b0a2;--mute:#979385;--rule:#353b33;--gold:#d4a86a;--gold2:#d4a86a;--block:#242923;--sage:#8fb69a;--tint:rgba(212,168,106,0.1)}
+.slide.dark [style*="background:var(--block)"]{box-shadow:inset 0 0 0 2px #353b33}
+.tl-pt:last-of-type .tl-line{display:none}
+.tl-pt:last-of-type .tl-dot{background:var(--gold)!important}
+.hl-box:first-of-type .conn,.strip-box:first-of-type .conn{display:none}
+.hl-box[data-hl="yes"]{border-color:var(--gold)!important;background:var(--tint)}
+.hl-row[data-hl="yes"]{border-top-color:var(--gold)!important;background:var(--bg2)}
+.strip-box:last-of-type{border-color:var(--gold)!important;background:var(--tint)}
+/* ---- preview page only ---- */
+body{margin:0;background:#d6cfc0;color:#1b1f1a;font-family:'Geist',Arial,sans-serif}
+a{color:#7d5c2a}a:hover{color:#1b1f1a}
+.wrap{padding:48px;display:flex;flex-direction:column;gap:28px}
+.top{display:flex;flex-direction:column;gap:10px;max-width:1080px}
+.eyebrow{font-family:'Geist Mono',monospace;font-size:13px;letter-spacing:0.14em;color:#7d5c2a}
+h1{font-family:'Newsreader',serif;font-weight:400;font-size:40px;line-height:1.1;margin:0}
+.top p{margin:0;font-size:15px;line-height:1.6;color:#4d4c43}
+.top code,.fields code{font-family:'Geist Mono',monospace;font-size:13px}
+.modes{display:flex;gap:8px;flex-wrap:wrap}
+.modes button{cursor:pointer;border:1px solid #1b1f1a;background:transparent;padding:10px 16px;font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.08em;color:#1b1f1a}
+.modes button[aria-pressed="true"]{background:#1b1f1a;color:#f6f2e9}
+#designs{display:flex;flex-wrap:wrap;gap:48px;align-items:flex-start}
+.fields{display:flex;flex-direction:column;gap:12px;max-width:1500px}
+.fg{display:flex;flex-wrap:wrap;gap:6px}
+.fc{display:flex;gap:8px;align-items:center;padding:6px 10px;background:#f6f2e9;font-size:13px;color:#4d4c43}
+.fc code{color:#1b1f1a}
+.rp{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px dashed #9a8f78}
+.rh{font-family:'Geist Mono',monospace;font-size:12px;color:#7d5c2a}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="top">
+  <div class="eyebrow">BARONI · POST TEMPLATE · LIGHT</div>
+  <h1>Statement · alternate <span style="font-family:'Geist Mono',monospace;font-size:16px;color:#6b695f">statement_alt</span></h1>
+  <p>1080 × 1350 · Headline anchored low, sunflower mark cropped top-right.</p>
+  <p>Fill <code>{{field}}</code> spots. Copy each element between <code>&lt;!-- repeat: name --&gt;</code> markers once per item. Open with <code>?raw</code> for the untouched template.</p>
+  <div class="modes"><button data-mode="max" aria-pressed="true">SAMPLE · MAX ITEMS</button><button data-mode="min" aria-pressed="false">SAMPLE · MIN ITEMS</button><button data-mode="fields" aria-pressed="false">FIELD NAMES</button></div>
+</div>
+<main id="designs">
+<div class="slide light" id="statement_alt" data-design="statement_alt" style="width:1080px;height:1350px;flex:0 0 auto;background:var(--bg);padding:80px;display:flex;flex-direction:column;overflow:hidden;position:relative;font-family:'Geist',Arial,sans-serif;color:var(--ink)"><img src="assets/logos/baroni-mark-lg-light.svg" alt="" aria-hidden="true" data-decor="" style="position:absolute;right:-180px;top:-170px;width:680px;height:680px;display:block"><div style="position:relative"><span style="font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.14em;color:var(--gold2);">{{label}}</span></div><div style="margin-top:auto;display:flex;flex-direction:column;gap:32px;padding-bottom:56px;position:relative"><h1 style="font-family:'Newsreader',serif;font-weight:400;font-size:104px;line-height:1.03;letter-spacing:-0.025em;margin:0;color:var(--ink);text-wrap:balance;line-height:1.02">{{headline}} <em style="font-style:italic;color:var(--gold)">{{headline_gold}}</em></h1><p style="font-size:34px;line-height:1.45;color:var(--soft);margin:0;text-wrap:pretty;max-width:820px">{{kicker}}</p></div><div style="display:flex;justify-content:space-between;align-items:center;gap:24px;padding-top:32px;border-top:2px solid var(--rule)"><img src="assets/logos/baroni-lockup-horizontal-on-light.png" alt="Baroni Applied Intelligence" style="display:block;height:72px;width:auto"><span style="font-family:'Geist Mono',monospace;font-size:20px;letter-spacing:0.1em;color:var(--mute);">{{footer_note}}</span></div></div>
+</main>
+<div class="fields"><div class="fg"><div class="fc"><code>{{label}}</code><span>max 5 words</span></div><div class="fc"><code>{{headline}}</code><span>max 5 words</span></div><div class="fc"><code>{{headline_gold}}</code><span>max 4 words</span></div><div class="fc"><code>{{kicker}}</code><span>max 11 words</span></div><div class="fc"><code>{{footer_note}}</code><span>max 3 words</span></div></div></div>
+</div>
+<script type="application/json" id="sample-data">{"statement_alt":{"f":{"label":"POINT OF VIEW · 12","headline":"The best AI systems still","headline_gold":"ask before they act.","kicker":"Human sign-off is a feature you design in on day one.","footer_note":"JAMES BARONI HARRISON"},"r":{},"min":{}}}</script>
+<script>
+(function(){
+  var RAW=/[?&]raw\b/.test(location.search);
+  var root=document.getElementById('designs');
+  var data=JSON.parse(document.getElementById('sample-data').textContent);
+  var pristine=root.innerHTML;
+  var pad=function(n){return (n<10?'0':'')+n;};
+  var esc=function(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');};
+  var fill=function(h,o){return h.replace(/\{\{(\w+)\}\}/g,function(m,k){return k in o?esc(o[k]):m;});};
+  function render(mode){
+    root.innerHTML=pristine;
+    if(mode==='fields') return;
+    root.querySelectorAll('[data-repeat]').forEach(function(el){
+      var host=el.closest('[data-design]'), d=data[host.dataset.design], name=el.dataset.repeat;
+      if(!d||!d.r[name]) return;
+      var list=d.r[name], n=mode==='min'?d.min[name]:list.length, out='';
+      for(var i=0;i<n;i++){var c=Object.assign({},list[i],{item_no:pad(i+1),lesson_no:pad(i+1)});out+=fill(el.outerHTML,c).replace(/ id="(\w+)"/,' id="$1_'+(i+1)+'"');}
+      el.insertAdjacentHTML('beforebegin',out); el.remove();
+    });
+    var groups={};
+    root.querySelectorAll('.slide').forEach(function(s){var g=s.dataset.design+'|'+s.classList[1];(groups[g]=groups[g]||[]).push(s);});
+    Object.keys(groups).forEach(function(g){
+      var list=groups[g];
+      list.forEach(function(s,i){
+        var d=data[s.dataset.design]||{f:{}};
+        s.innerHTML=fill(s.innerHTML,Object.assign({},d.f,{slide_no:pad(i+1),slide_total:pad(list.length),progress_pct:Math.round((i+1)/list.length*100),lesson_count:d.f.lesson_count&&mode==='min'?String(d.min.lessons):d.f.lesson_count}));
+      });
+    });
+  }
+  if(RAW) return;
+  
+  var btns=document.querySelectorAll('.modes button');btns.forEach(function(b){b.addEventListener('click',function(){btns.forEach(function(x){x.setAttribute('aria-pressed',x===b);});render(b.dataset.mode);});});render('max');
+})();
+</script>
+</body>
+</html>

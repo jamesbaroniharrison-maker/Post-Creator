@@ -1461,3 +1461,48 @@ once `register_scheduled_task.ps1` has been re-run elevated (still pending from 
   gone, socket still held) was sitting on it. Ghost listeners on 8000-8005 are also why
   this app's backend keeps landing on 8006 - a reboot clears them. Verified both apps
   running at once: 3000 and 3001 both return 200, and both backends answer /ping.
+
+## Claude Design post templates: 52 designs, read straight from their files (3 Oct 2026)
+
+James delivered 52 designs from Claude Design (`D:\Work\! Branding\posts\`): 26 layouts
+(his original 10, 6 alternates, 7 new single types, 3 new carousels), each light and
+`_dark`. Copied as delivered into `visuals_engine/designs/` (plus `assets/logos/`, which
+the files expect but which wasn't included). They replace the hand-built Jinja templates
+(`templates/`, `samples.py`, the old `assets/` - all removed).
+
+- **`designs.py`** reads each file, so nothing is hand-copied - an updated file from
+  Claude Design can be dropped in as-is. It takes the slides from `<main id="designs">`,
+  the theme CSS above "preview page only", field word limits from the `.fc` chips,
+  per-repeat item fields from the `.rp` blocks, and min/max item counts plus sample
+  text from the embedded `sample-data` JSON. `Design.fill()` mirrors the files' own
+  preview script: expand `data-repeat` elements (item_no/lesson_no), then fill each
+  slide with slide_no/slide_total/progress_pct. A whole slide can repeat (lessons
+  carousel). Auto fields: item/lesson numbers, slide counters, progress, lesson_count;
+  the milestone progress bar comes from count_done/count_total. Fixed fields always
+  win: footer_note, and name/role on quotes (the designs were built for client
+  testimonials, but here a quote is always James's own words).
+- **`spec.py`** builds `CATALOG` from the files and adds only `WHEN` (what each base
+  design suits) and `PAIRING_TEMPLATES` (base keys; `_alt`/`_dark` inherit via
+  `_root`). `_MAX_ITEMS` caps before_after_alt at 4 rows - 5 pushed its footer into the
+  bottom margin.
+- **`fill.py`**: one generic `check_slots` for every design (every field filled, word
+  limits, item counts, item_highlight yes/blank with at most one yes, numbers only from
+  the post/source - zero-padded step numbering like "01" is exempt). Each candidate
+  shown to the model includes its sample text as a style example. **Real problem found
+  live**: the model copied whole lines from the example ("The cost argument just
+  disappeared.") - invented claims on the image. New copy check: a 3+ word content line
+  (not labels/tags/buttons/dates; headlines checked joined to their gold ending) that
+  matches the sample and isn't in the post itself is rejected and retried. The
+  statement fallback now respects dark.
+- **Overflow detector** (`render.py`) reworked against all 52: no longer flags text in
+  the 80px margin (designs run bands/photos to the edge on purpose), only text pushed
+  past the slide edge, or overflow in a box that clips or holds the text directly
+  (decorative overhang - photo corner marks, the timeline line - is harmless). Result:
+  0 false flags across 52 designs at max sample length; an over-long headline and a
+  15-item list are still caught.
+
+Verified: all 52 rendered at min and max sample text with the correct slide counts
+(lessons carousel 5 and 7 slides, others fixed), checked by eye on contact sheets.
+Live AI fills: milestone light/dark (real counts 3/8 from the post), a 5-slide
+news_breakdown carousel with PDF, statement_dark - no copied lines, no invented
+numbers. App compiles and serves (`/posts` 200).

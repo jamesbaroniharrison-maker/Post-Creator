@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Baroni post · news_breakdown</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+
+/* ---- slide themes: layout is identical, only these variables change ---- */
+.slide{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+.slide *{box-sizing:border-box}
+.slide.light{--bg:#f6f2e9;--bg2:#ece6d8;--ink:#1b1f1a;--soft:#4d4c43;--mute:#6b695f;--rule:#d8d0bf;--gold:#9a7437;--gold2:#7d5c2a;--block:#1b1f1a;--sage:#3f6b4c;--tint:rgba(154,116,55,0.08)}
+.slide.dark{--bg:#1b1f1a;--bg2:#242923;--ink:#ece7dc;--soft:#b4b0a2;--mute:#979385;--rule:#353b33;--gold:#d4a86a;--gold2:#d4a86a;--block:#242923;--sage:#8fb69a;--tint:rgba(212,168,106,0.1)}
+.slide.dark [style*="background:var(--block)"]{box-shadow:inset 0 0 0 2px #353b33}
+.tl-pt:last-of-type .tl-line{display:none}
+.tl-pt:last-of-type .tl-dot{background:var(--gold)!important}
+.hl-box:first-of-type .conn,.strip-box:first-of-type .conn{display:none}
+.hl-box[data-hl="yes"]{border-color:var(--gold)!important;background:var(--tint)}
+.hl-row[data-hl="yes"]{border-top-color:var(--gold)!important;background:var(--bg2)}
+.strip-box:last-of-type{border-color:var(--gold)!important;background:var(--tint)}
+/* ---- preview page only ---- */
+body{margin:0;background:#d6cfc0;color:#1b1f1a;font-family:'Geist',Arial,sans-serif}
+a{color:#7d5c2a}a:hover{color:#1b1f1a}
+.wrap{padding:48px;display:flex;flex-direction:column;gap:28px}
+.top{display:flex;flex-direction:column;gap:10px;max-width:1080px}
+.eyebrow{font-family:'Geist Mono',monospace;font-size:13px;letter-spacing:0.14em;color:#7d5c2a}
+h1{font-family:'Newsreader',serif;font-weight:400;font-size:40px;line-height:1.1;margin:0}
+.top p{margin:0;font-size:15px;line-height:1.6;color:#4d4c43}
+.top code,.fields code{font-family:'Geist Mono',monospace;font-size:13px}
+.modes{display:flex;gap:8px;flex-wrap:wrap}
+.modes button{cursor:pointer;border:1px solid #1b1f1a;background:transparent;padding:10px 16px;font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.08em;color:#1b1f1a}
+.modes button[aria-pressed="true"]{background:#1b1f1a;color:#f6f2e9}
+#designs{display:flex;flex-wrap:wrap;gap:48px;align-items:flex-start}
+.fields{display:flex;flex-direction:column;gap:12px;max-width:1500px}
+.fg{display:flex;flex-wrap:wrap;gap:6px}
+.fc{display:flex;gap:8px;align-items:center;padding:6px 10px;background:#f6f2e9;font-size:13px;color:#4d4c43}
+.fc code{color:#1b1f1a}
+.rp{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px dashed #9a8f78}
+.rh{font-family:'Geist Mono',monospace;font-size:12px;color:#7d5c2a}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="top">
+  <div class="eyebrow">BARONI · POST TEMPLATE · LIGHT</div>
+  <h1>Carousel · News breakdown <span style="font-family:'Geist Mono',monospace;font-size:16px;color:#6b695f">news_breakdown</span></h1>
+  <p>1080 × 1350 · 5 slide templates · 5 slides: cover with masthead rule, what happened, why it matters, my take in Forest, then the call to action.</p>
+  <p>Fill <code>{{field}}</code> spots. Copy each element between <code>&lt;!-- repeat: name --&gt;</code> markers once per item. Open with <code>?raw</code> for the untouched template.</p>
+  <div class="modes"><button data-mode="max" aria-pressed="true">SAMPLE · MAX ITEMS</button><button data-mode="min" aria-pressed="false">SAMPLE · MIN ITEMS</button><button data-mode="fields" aria-pressed="false">FIELD NAMES</button></div>
+</div>
+<main id="designs">
+<div class="slide light" id="news_breakdown_cover" data-design="news_breakdown" style="width:1080px;height:1350px;flex:0 0 auto;background:var(--bg);padding:80px;display:flex;flex-direction:column;overflow:hidden;position:relative;font-family:'Geist',Arial,sans-serif;color:var(--ink)"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:24px;padding-bottom:22px;border-bottom:6px double var(--ink)"><span style="font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.14em;color:var(--gold2);">{{label}}</span><span style="font-family:'Geist Mono',monospace;font-size:22px;letter-spacing:0.1em;color:var(--mute);">{{date}}</span></div><div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:36px;"><span style="font-family:'Geist Mono',monospace;font-size:22px;letter-spacing:0.12em;color:var(--mute);">{{source}}</span><h1 style="font-family:'Newsreader',serif;font-weight:400;font-size:104px;line-height:1.03;letter-spacing:-0.025em;margin:0;color:var(--ink);text-wrap:balance;line-height:1.0">{{cover_headline}} <em style="font-style:italic;color:var(--gold)">{{cover_headline_gold}}</em></h1><p style="font-size:38px;line-height:1.45;color:var(--soft);margin:0;text-wrap:pretty;">{{cover_sub}}</p></div><div style="display:flex;justify-content:space-between;align-items:center;gap:24px;"><div style="flex:1;display:flex;gap:8px"><span style="flex:1;height:4px;background:var(--gold)"></span><span style="flex:1;height:4px;background:var(--rule)"></span><span style="flex:1;height:4px;background:var(--rule)"></span><span style="flex:1;height:4px;background:var(--rule)"></span><span style="flex:1;height:4px;background:var(--rule)"></span></div><span style="font-family:'Geist Mono',monospace;font-size:20px;letter-spacing:0.12em;color:var(--gold2);">SWIPE →</span></div></div>
+<div class="slide light" id="news_breakdown_what" data-design="news_breakdown" style="width:1080px;height:1350px;flex:0 0 auto;background:var(--bg);padding:80px;display:flex;flex-direction:column;overflow:hidden;position:relative;font-family:'Geist',Arial,sans-serif;color:var(--ink)"><div style="display:flex;justify-content:space-between;align-items:center;gap:24px;"><span style="font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.14em;color:var(--gold2);">{{what_label}}</span><span style="font-family:'Geist Mono',monospace;font-size:22px;letter-spacing:0.1em;color:var(--mute);">02 / 05</span></div><div style="margin-top:56px"><h1 style="font-family:'Newsreader',serif;font-weight:400;font-size:84px;line-height:1.03;letter-spacing:-0.025em;margin:0;color:var(--ink);text-wrap:balance;">{{what_headline}} <em style="font-style:italic;color:var(--gold)">{{what_headline_gold}}</em></h1></div><div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:0px;margin:40px 0"><div style="border-bottom:2px solid var(--rule)"><!-- repeat: points --><div data-repeat="points" style="display:flex;gap:28px;align-items:baseline;padding:28px 0;border-top:2px solid var(--rule)"><span style="flex:0 0 14px;width:14px;height:14px;background:var(--gold);transform:translateY(-6px) rotate(45deg)"></span><span style="font-size:36px;line-height:1.35">{{point}}</span></div><!-- /repeat: points --></div></div><div style="display:flex;justify-content:space-between;align-items:center;gap:24px;"><div style="flex:1;display:flex;gap:8px"><span style="flex:1;height:4px;background:var(--rule)"></span><span style="flex:1;height:4px;background:var(--gold)"></span><span style="flex:1;height:4px;background:var(--rule)"></span><span style="flex:1;height:4px;background:var(--rule)"></span><span style="flex:1;height:4px;background:var(--rule)"></span></div><span style="font-family:'Geist Mono',monospace;font-size:20px;letter-spacing:0.12em;color:var(--gold2);">SWIPE →</span></div></div>
+<div class="slide light" id="news_breakdown_why" data-design="news_breakdown" style="width:1080px;height:1350px;flex:0 0 auto;background:var(--bg);padding:80px;display:flex;flex-direction:column;overflow:hidden;position:relative;font-family:'Geist',Arial,sans-serif;color:var(--ink)"><div style="display:flex;justify-content:space-between;align-items:center;gap:24px;"><span style="font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.14em;color:var(--gold2);">{{why_label}}</span><span style="font-family:'Geist Mono',monospace;font-size:22px;letter-spacing:0.1em;color:var(--mute);">03 / 05</span></div><div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:56px;"><h1 style="font-family:'Newsreader',serif;font-weight:400;font-size:100px;line-height:1.03;letter-spacing:-0.025em;margin:0;color:var(--ink);text-wrap:balance;line-height:1.0">{{why_headline}} <em style="font-style:italic;color:var(--gold)">{{why_headline_gold}}</em></h1><div style="background:var(--bg2);padding:44px 48px;display:flex;flex-direction:column;gap:18px"><span style="font-family:'Geist Mono',monospace;font-size:22px;letter-spacing:0.14em;color:var(--gold2);">{{why_panel_label}}</span><p style="font-size:38px;line-height:1.45;margin:0;color:var(--ink);text-wrap:pretty">{{why_text}}</p></div></div><div style="display:flex;justify-content:space-between;align-items:center;gap:24px;"><div style="flex:1;display:flex;gap:8px"><span style="flex:1;height:4px;background:var(--rule)"></span><span style="flex:1;height:4px;background:var(--rule)"></span><span style="flex:1;height:4px;background:var(--gold)"></span><span style="flex:1;height:4px;background:var(--rule)"></span><span style="flex:1;height:4px;background:var(--rule)"></span></div><span style="font-family:'Geist Mono',monospace;font-size:20px;letter-spacing:0.12em;color:var(--gold2);">SWIPE →</span></div></div>
+<div class="slide light" id="news_breakdown_take" data-design="news_breakdown" style="width:1080px;height:1350px;flex:0 0 auto;background:var(--block);padding:80px;display:flex;flex-direction:column;overflow:hidden;position:relative;font-family:'Geist',Arial,sans-serif;color:var(--ink)"><div style="display:flex;justify-content:space-between;align-items:center;gap:24px;"><span style="font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.14em;color:#d4a86a;">{{take_label}}</span><span style="font-family:'Geist Mono',monospace;font-size:22px;letter-spacing:0.1em;color:#979385;">04 / 05</span></div><div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:40px;"><span style="display:block;height:100px;font-family:'Newsreader',serif;font-size:220px;line-height:0.78;color:#d4a86a">“</span><h1 style="font-family:'Newsreader',serif;font-weight:400;font-size:84px;line-height:1.06;letter-spacing:-0.02em;margin:0;color:#ece7dc;text-wrap:balance">{{take}} <em style="font-style:italic;color:#d4a86a">{{take_gold}}</em></h1><p style="font-size:36px;line-height:1.45;margin:0;color:#b4b0a2;text-wrap:pretty">{{take_reason}}</p></div><div style="display:flex;justify-content:space-between;align-items:center;gap:24px;"><div style="flex:1;display:flex;gap:8px"><span style="flex:1;height:4px;background:#353b33"></span><span style="flex:1;height:4px;background:#353b33"></span><span style="flex:1;height:4px;background:#353b33"></span><span style="flex:1;height:4px;background:#d4a86a"></span><span style="flex:1;height:4px;background:#353b33"></span></div><span style="font-family:'Geist Mono',monospace;font-size:20px;letter-spacing:0.12em;color:#d4a86a;">SWIPE →</span></div></div>
+<div class="slide light" id="news_breakdown_cta" data-design="news_breakdown" style="width:1080px;height:1350px;flex:0 0 auto;background:var(--bg2);padding:80px;display:flex;flex-direction:column;overflow:hidden;position:relative;font-family:'Geist',Arial,sans-serif;color:var(--ink)"><div style="display:flex;justify-content:space-between;align-items:center;gap:24px;"><span style="font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.14em;color:var(--gold2);">{{cta_label}}</span><span style="font-family:'Geist Mono',monospace;font-size:22px;letter-spacing:0.1em;color:var(--mute);">05 / 05</span></div><div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:44px;align-items:center;text-align:center"><img src="assets/logos/baroni-lockup-stacked-on-light.png" alt="Baroni Applied Intelligence" style="display:block;height:200px;width:auto"><h1 style="font-family:'Newsreader',serif;font-weight:400;font-size:92px;line-height:1.03;letter-spacing:-0.025em;margin:0;color:var(--ink);text-wrap:balance;text-align:center">{{cta_headline}} <em style="font-style:italic;color:var(--gold)">{{cta_headline_gold}}</em></h1><div style="padding:26px 44px;border:2px solid var(--ink);font-size:34px;font-weight:500">{{cta_button}}</div><span style="font-family:'Geist Mono',monospace;font-size:20px;letter-spacing:0.12em;color:var(--mute);">{{cta_note}}</span></div><div style="display:flex;justify-content:space-between;align-items:center;gap:24px;"><div style="flex:1;display:flex;gap:8px"><span style="flex:1;height:4px;background:var(--rule)"></span><span style="flex:1;height:4px;background:var(--rule)"></span><span style="flex:1;height:4px;background:var(--rule)"></span><span style="flex:1;height:4px;background:var(--rule)"></span><span style="flex:1;height:4px;background:var(--gold)"></span></div><span style="font-family:'Geist Mono',monospace;font-size:20px;letter-spacing:0.12em;color:var(--gold2);">END</span></div></div>
+</main>
+<div class="fields"><div class="fg"><div class="fc"><code>{{label}}</code><span>max 2 words</span></div><div class="fc"><code>{{date}}</code><span>max 3 words</span></div><div class="fc"><code>{{source}}</code><span>max 3 words</span></div><div class="fc"><code>{{cover_headline}}</code><span>max 7 words</span></div><div class="fc"><code>{{cover_headline_gold}}</code><span>max 5 words</span></div><div class="fc"><code>{{cover_sub}}</code><span>max 14 words</span></div><div class="fc"><code>{{what_label}}</code><span>max 4 words</span></div><div class="fc"><code>{{what_headline}}</code><span>max 2 words</span></div><div class="fc"><code>{{what_headline_gold}}</code><span>max 2 words</span></div><div class="fc"><code>{{why_label}}</code><span>max 5 words</span></div><div class="fc"><code>{{why_headline}}</code><span>max 3 words</span></div><div class="fc"><code>{{why_headline_gold}}</code><span>max 2 words</span></div><div class="fc"><code>{{why_panel_label}}</code><span>max 3 words</span></div><div class="fc"><code>{{why_text}}</code><span>max 20 words</span></div><div class="fc"><code>{{take_label}}</code><span>max 4 words</span></div><div class="fc"><code>{{take}}</code><span>max 6 words</span></div><div class="fc"><code>{{take_gold}}</code><span>max 7 words</span></div><div class="fc"><code>{{take_reason}}</code><span>max 15 words</span></div><div class="fc"><code>{{cta_label}}</code><span>max 2 words</span></div><div class="fc"><code>{{cta_headline}}</code><span>max 3 words</span></div><div class="fc"><code>{{cta_headline_gold}}</code><span>max 3 words</span></div><div class="fc"><code>{{cta_button}}</code><span>max 6 words</span></div><div class="fc"><code>{{cta_note}}</code><span>max 5 words</span></div></div><div class="rp"><div class="rh">repeat: <code>points</code> · 2–4 items</div><div class="fg"><div class="fc"><code>{{point}}</code><span>max 14 words</span></div></div></div></div>
+</div>
+<script type="application/json" id="sample-data">{"news_breakdown":{"f":{"label":"NEWS BREAKDOWN","date":"02 OCT 2026","source":"VIA [PUBLICATION NAME]","cover_headline":"A big AI lab just made agents","cover_headline_gold":"cheap enough for small firms.","cover_sub":"What happened, why it matters, and what I would do about it this week.","what_label":"01 · WHAT HAPPENED","what_headline":"Prices dropped,","what_headline_gold":"and fast.","why_label":"02 · WHY IT MATTERS","why_headline":"The cost argument","why_headline_gold":"just disappeared.","why_panel_label":"IN PLAIN TERMS","why_text":"If a task takes your team two hours a week, automating it now pays for itself in about a month.","take_label":"03 · MY TAKE","take":"Cheaper agents mean more mistakes, faster.","take_gold":"Keep a human on the last step.","take_reason":"Price was never the hard part. Trust is. Build the approval step before anything else.","cta_label":"YOUR MOVE","cta_headline":"Want the version","cta_headline_gold":"for your business?","cta_button":"Book a 20-min scope call →","cta_note":"FOLLOW FOR THE NEXT BREAKDOWN"},"r":{"points":[{"point":"A leading lab cut the price of its agent model by more than half."},{"point":"The new tier can run multi-step tasks across email and calendars."},{"point":"Every action is logged, so a person can check what it did."},{"point":"Rivals are expected to match the price within weeks."}]},"min":{"points":2}}}</script>
+<script>
+(function(){
+  var RAW=/[?&]raw\b/.test(location.search);
+  var root=document.getElementById('designs');
+  var data=JSON.parse(document.getElementById('sample-data').textContent);
+  var pristine=root.innerHTML;
+  var pad=function(n){return (n<10?'0':'')+n;};
+  var esc=function(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');};
+  var fill=function(h,o){return h.replace(/\{\{(\w+)\}\}/g,function(m,k){return k in o?esc(o[k]):m;});};
+  function render(mode){
+    root.innerHTML=pristine;
+    if(mode==='fields') return;
+    root.querySelectorAll('[data-repeat]').forEach(function(el){
+      var host=el.closest('[data-design]'), d=data[host.dataset.design], name=el.dataset.repeat;
+      if(!d||!d.r[name]) return;
+      var list=d.r[name], n=mode==='min'?d.min[name]:list.length, out='';
+      for(var i=0;i<n;i++){var c=Object.assign({},list[i],{item_no:pad(i+1),lesson_no:pad(i+1)});out+=fill(el.outerHTML,c).replace(/ id="(\w+)"/,' id="$1_'+(i+1)+'"');}
+      el.insertAdjacentHTML('beforebegin',out); el.remove();
+    });
+    var groups={};
+    root.querySelectorAll('.slide').forEach(function(s){var g=s.dataset.design+'|'+s.classList[1];(groups[g]=groups[g]||[]).push(s);});
+    Object.keys(groups).forEach(function(g){
+      var list=groups[g];
+      list.forEach(function(s,i){
+        var d=data[s.dataset.design]||{f:{}};
+        s.innerHTML=fill(s.innerHTML,Object.assign({},d.f,{slide_no:pad(i+1),slide_total:pad(list.length),progress_pct:Math.round((i+1)/list.length*100),lesson_count:d.f.lesson_count&&mode==='min'?String(d.min.lessons):d.f.lesson_count}));
+      });
+    });
+  }
+  if(RAW) return;
+  
+  var btns=document.querySelectorAll('.modes button');btns.forEach(function(b){b.addEventListener('click',function(){btns.forEach(function(x){x.setAttribute('aria-pressed',x===b);});render(b.dataset.mode);});});render('max');
+})();
+</script>
+</body>
+</html>

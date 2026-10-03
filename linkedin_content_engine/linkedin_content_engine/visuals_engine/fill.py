@@ -15,9 +15,8 @@ import pathlib
 import re
 import shutil
 
-import pydantic
-
 from linkedin_content_engine.drafting_engine.draft import _chat
+from linkedin_content_engine.visuals_engine.designs import HIGHLIGHT_FIELD
 from linkedin_content_engine.visuals_engine.render import render
 from linkedin_content_engine.visuals_engine.spec import CATALOG, candidate_templates
 
@@ -40,7 +39,9 @@ gold italics. The plain headline sets it up; the gold part finishes the sentence
 - British spelling. No em dashes. No hashtags, no emoji, no question marks.
 - Labels are short category tags (e.g. POINT OF VIEW, FIELD NOTES), not sentences.
 - Call-to-action buttons invite a reply or a follow (e.g. "Tell me your version", "Follow for the next build"), never a sales offer, booking, or link the post doesn't already mention.
-- Leave optional fields out entirely when the post gives you nothing real for them.
+- Fill every field in the shape. Lists must have an item count inside the range shown.
+- Each layout comes with an EXAMPLE of its style (capitals, length, tone). Match the \
+style only - never reuse the example's words, names or numbers.
 
 Layouts you may choose from:
 {options}
@@ -84,29 +85,125 @@ def _clean(value):
     return value
 
 
-def check_slots(template_key: str, slots: dict, source_text: str) -> list[str]:
-    """Everything wrong with a filled template, as plain sentences the model can act on."""
-    spec = CATALOG[template_key]
-    problems: list[str] = []
-    try:
-        spec.model.model_validate(slots)
-    except pydantic.ValidationError as exc:
-        for err in exc.errors():
-            problems.append(f"field {'.'.join(str(p) for p in err['loc'])}: {err['msg']}")
-        return problems
+def _example(key: str) -> dict:
+    """The design's own sample text (min item counts), trimmed to the fields the model fills."""
+    d = CATALOG[key].design
+    sample = d.sample_slots("min")
+    out = {k: sample[k] for k in d.model_fields if k in sample}
+    for r in d.repeats:
+        fields = d.model_item_fields(r)
+        out[r] = [{k: v for k, v in item.items() if k in fields} for item in sample.get(r, [])]
+    return out
 
-    for field, limit in spec.word_limits.items():
-        words = len(str(slots.get(field) or "").split())
-        if words > limit:
-            problems.append(f'"{field}" has {words} words, the limit is {limit} - shorten it.')
-    for field, (lo, hi) in spec.list_lengths.items():
-        n = len(slots.get(field) or [])
-        if not lo <= n <= hi:
+
+def _squash(text: str) -> str:
+    return " ".join(re.sub(r"[^\w\s]", " ", text.lower()).split())
+
+
+def _sample_lines(key: str) -> set[str]:
+    """Every 3+ word line in the design's sample text (light or dark, alt or not, the
+    samples match), squashed for comparison."""
+    d = CATALOG[key].design
+    return {_squash(v) for v in _lines(d.sample_slots("max")) if len(v.split()) >= 3}
+
+
+# Tags, buttons, dates and sources - reusing the sample's wording there is fine
+# ("WHAT I LEARNED", "Send me a message"); only content lines can carry a claim.
+_TAG_FIELD = re.compile(r"label|tag|note|date|source|status|prompt|button|count|_no$|_time$")
+
+
+def _lines(slots: dict):
+    """Every content string (not tags), plus each headline joined to its gold ending
+    ("headline" + "headline_gold"), since a copied line can be split across the two."""
+    def walk(value, key=""):
+        if isinstance(value, str):
+            if not _TAG_FIELD.search(key):
+                yield value
+        elif isinstance(value, dict):
+            for k, v in value.items():
+                yield from walk(v, k)
+            for k, v in value.items():
+                gold = value.get(f"{k}_gold")
+                if isinstance(v, str) and isinstance(gold, str) and not _TAG_FIELD.search(k):
+                    yield f"{v} {gold}"
+        elif isinstance(value, list):
+            for v in value:
+                yield from walk(v, key)
+
+    yield from walk(slots)
+
+
+def _words(text) -> int:
+    return len(str(text or "").split())
+
+
+def _normalise(key: str, slots: dict) -> dict:
+    """Only the fields the design uses - anything extra the model sent is dropped."""
+    d = CATALOG[key].design
+    out = {k: slots[k] for k in d.model_fields if k in slots}
+    for r in d.repeats:
+        fields = d.model_item_fields(r)
+        out[r] = [{k: str(item.get(k, "")) for k in fields} for item in slots.get(r, [])]
+    return out
+
+
+def check_slots(template_key: str, slots: dict, source_text: str) -> list[str]:
+    """Everything wrong with a filled design, as plain sentences the model can act on.
+    The limits are the design file's own: max words per field, item counts per list."""
+    d = CATALOG[template_key].design
+    problems: list[str] = []
+    for field, limit in d.model_fields.items():
+        value = slots.get(field)
+        if not isinstance(value, str) or not value.strip():
+            problems.append(f'"{field}" is missing - fill it.')
+        elif limit and _words(value) > limit:
+            problems.append(f'"{field}" has {_words(value)} words, the limit is {limit} - shorten it.')
+    for r in d.repeats:
+        items = slots.get(r)
+        lo, hi = d.list_lengths[r]
+        if not isinstance(items, list) or not lo <= len(items) <= hi:
+            n = len(items) if isinstance(items, list) else 0
             want = f"exactly {lo}" if lo == hi else f"{lo}-{hi}"
-            problems.append(f'"{field}" has {n} items, it needs {want}.')
+            problems.append(f'"{r}" has {n} items, it needs {want}.')
+            continue
+        fields = d.model_item_fields(r)
+        for i, item in enumerate(items, start=1):
+            if not isinstance(item, dict):
+                problems.append(f'"{r}" item {i} must be an object with {list(fields)}.')
+                continue
+            for field, limit in fields.items():
+                value = item.get(field, "")
+                if field == HIGHLIGHT_FIELD:
+                    if str(value).lower() not in ("yes", ""):
+                        problems.append(f'"{r}" item {i} {field} must be "yes" or "".')
+                elif not isinstance(value, str) or not value.strip():
+                    problems.append(f'"{r}" item {i} is missing "{field}".')
+                elif limit and _words(value) > limit:
+                    problems.append(f'"{r}" item {i} "{field}" has {_words(value)} words, the limit is {limit}.')
+        yes = sum(str(x.get(HIGHLIGHT_FIELD, "")).lower() == "yes" for x in items if isinstance(x, dict))
+        if HIGHLIGHT_FIELD in fields and yes > 1:
+            problems.append(f'"{r}": only ONE item can have {HIGHLIGHT_FIELD} "yes".')
+
+    # The style examples are shown to the model - confirmed live that it sometimes copies
+    # a line straight out of one ("The cost argument just disappeared."), which would put
+    # a claim on the image that the post never made. Short tags (labels) may match.
+    in_post = _squash(source_text)
+    copied = sorted(
+        line
+        for line in {_squash(v) for v in _lines(slots) if len(v.split()) >= 3} & _sample_lines(template_key)
+        if line not in in_post  # the post itself saying it is fine
+    )
+    if copied:
+        problems.append(
+            "these lines are copied from the style example, not the post - rewrite them from the "
+            f"post's own content: {'; '.join(copied)}"
+        )
 
     allowed = {_norm_num(t) for t in _NUMBER_RE.findall(source_text)}
-    invented = sorted({t for s in _strings(slots) for t in _NUMBER_RE.findall(s) if _norm_num(t) not in allowed})
+    invented = sorted({
+        t for s in _strings(slots) for t in _NUMBER_RE.findall(s)
+        if _norm_num(t) not in allowed and not re.fullmatch(r"0\d", t)  # "01", "02": step numbering, not a claim
+    })
     if invented:
         problems.append(
             f"these numbers are not in the post or source: {', '.join(invented)}. Remove them "
@@ -117,7 +214,9 @@ def check_slots(template_key: str, slots: dict, source_text: str) -> list[str]:
 
 def _ask(candidates: list[str], post_text: str, source_text: str, extra: str = "") -> dict:
     options = "\n".join(
-        f'- "{k}" ({CATALOG[k].name}): {CATALOG[k].when}\n  Shape: {CATALOG[k].shape}' for k in candidates
+        f'- "{k}" ({CATALOG[k].name}): {CATALOG[k].when}\n  Shape: {CATALOG[k].shape}\n'
+        f"  EXAMPLE (style only): {json.dumps(_example(k), ensure_ascii=False)}"
+        for k in candidates
     )
     user = f"Post:\n{post_text}\n\nSource text (the only other place numbers may come from):\n{source_text or '(none)'}"
     if extra:
@@ -148,8 +247,7 @@ def _fill(candidates: list[str], post_text: str, source_text: str, extra: str = 
         slots = _clean(data["slots"])
         problems = check_slots(key, slots, source_text)
         if not problems:
-            # Normalised through the spec model, so every optional field has its default.
-            return key, CATALOG[key].model.model_validate(slots).model_dump(), []
+            return key, _normalise(key, slots), []
     return key, slots, problems
 
 
@@ -177,9 +275,10 @@ def make_visual(
     source_all = f"{post_text}\n{source_text}"
 
     key, slots, problems = _fill(candidates, post_text, source_all)
-    if problems and candidates != ["statement"] and not template_key:
+    simplest = "statement_dark" if dark else "statement"
+    if problems and candidates != [simplest] and not template_key:
         # Fall back to the simplest layout before giving up - one headline, nothing to count.
-        key, slots, problems = _fill(["statement"], post_text, source_all)
+        key, slots, problems = _fill([simplest], post_text, source_all)
     if problems:
         raise VisualError("; ".join(problems))
 

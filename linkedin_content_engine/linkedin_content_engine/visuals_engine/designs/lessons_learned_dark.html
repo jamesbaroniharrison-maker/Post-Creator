@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Baroni post · lessons_learned_dark</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+
+/* ---- slide themes: layout is identical, only these variables change ---- */
+.slide{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+.slide *{box-sizing:border-box}
+.slide.light{--bg:#f6f2e9;--bg2:#ece6d8;--ink:#1b1f1a;--soft:#4d4c43;--mute:#6b695f;--rule:#d8d0bf;--gold:#9a7437;--gold2:#7d5c2a;--block:#1b1f1a;--sage:#3f6b4c;--tint:rgba(154,116,55,0.08)}
+.slide.dark{--bg:#1b1f1a;--bg2:#242923;--ink:#ece7dc;--soft:#b4b0a2;--mute:#979385;--rule:#353b33;--gold:#d4a86a;--gold2:#d4a86a;--block:#242923;--sage:#8fb69a;--tint:rgba(212,168,106,0.1)}
+.slide.dark [style*="background:var(--block)"]{box-shadow:inset 0 0 0 2px #353b33}
+.tl-pt:last-of-type .tl-line{display:none}
+.tl-pt:last-of-type .tl-dot{background:var(--gold)!important}
+.hl-box:first-of-type .conn,.strip-box:first-of-type .conn{display:none}
+.hl-box[data-hl="yes"]{border-color:var(--gold)!important;background:var(--tint)}
+.hl-row[data-hl="yes"]{border-top-color:var(--gold)!important;background:var(--bg2)}
+.strip-box:last-of-type{border-color:var(--gold)!important;background:var(--tint)}
+/* ---- preview page only ---- */
+body{margin:0;background:#d6cfc0;color:#1b1f1a;font-family:'Geist',Arial,sans-serif}
+a{color:#7d5c2a}a:hover{color:#1b1f1a}
+.wrap{padding:48px;display:flex;flex-direction:column;gap:28px}
+.top{display:flex;flex-direction:column;gap:10px;max-width:1080px}
+.eyebrow{font-family:'Geist Mono',monospace;font-size:13px;letter-spacing:0.14em;color:#7d5c2a}
+h1{font-family:'Newsreader',serif;font-weight:400;font-size:40px;line-height:1.1;margin:0}
+.top p{margin:0;font-size:15px;line-height:1.6;color:#4d4c43}
+.top code,.fields code{font-family:'Geist Mono',monospace;font-size:13px}
+.modes{display:flex;gap:8px;flex-wrap:wrap}
+.modes button{cursor:pointer;border:1px solid #1b1f1a;background:transparent;padding:10px 16px;font-family:'Geist Mono',monospace;font-size:12px;letter-spacing:0.08em;color:#1b1f1a}
+.modes button[aria-pressed="true"]{background:#1b1f1a;color:#f6f2e9}
+#designs{display:flex;flex-wrap:wrap;gap:48px;align-items:flex-start}
+.fields{display:flex;flex-direction:column;gap:12px;max-width:1500px}
+.fg{display:flex;flex-wrap:wrap;gap:6px}
+.fc{display:flex;gap:8px;align-items:center;padding:6px 10px;background:#f6f2e9;font-size:13px;color:#4d4c43}
+.fc code{color:#1b1f1a}
+.rp{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px dashed #9a8f78}
+.rh{font-family:'Geist Mono',monospace;font-size:12px;color:#7d5c2a}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="top">
+  <div class="eyebrow">BARONI · POST TEMPLATE · DARK</div>
+  <h1>Carousel · Lessons learned <span style="font-family:'Geist Mono',monospace;font-size:16px;color:#6b695f">lessons_learned_dark</span></h1>
+  <p>1080 × 1350 · 3 slide templates · Cover, one slide per lesson (3–5), then the call to action. Counters and progress fill are automatic.</p>
+  <p>Fill <code>{{field}}</code> spots. Copy each element between <code>&lt;!-- repeat: name --&gt;</code> markers once per item. Open with <code>?raw</code> for the untouched template.</p>
+  <div class="modes"><button data-mode="max" aria-pressed="true">SAMPLE · MAX ITEMS</button><button data-mode="min" aria-pressed="false">SAMPLE · MIN ITEMS</button><button data-mode="fields" aria-pressed="false">FIELD NAMES</button></div>
+</div>
+<main id="designs">
+<div class="slide dark" id="lessons_learned_cover_dark" data-design="lessons_learned" style="width:1080px;height:1350px;flex:0 0 auto;background:var(--bg);padding:80px;display:flex;flex-direction:column;overflow:hidden;position:relative;font-family:'Geist',Arial,sans-serif;color:var(--ink)"><div style="display:flex;justify-content:space-between;align-items:center;gap:24px;"><span style="font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.14em;color:var(--gold2);">{{label}}</span><span style="font-family:'Geist Mono',monospace;font-size:22px;letter-spacing:0.1em;color:var(--mute);">{{slide_no}} / {{slide_total}}</span></div><div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:24px;"><span style="font-family:'Newsreader',serif;font-style:italic;font-size:400px;line-height:0.8;letter-spacing:-0.04em;color:var(--gold)">{{lesson_count}}</span><h1 style="font-family:'Newsreader',serif;font-weight:400;font-size:100px;line-height:1.03;letter-spacing:-0.025em;margin:0;color:var(--ink);text-wrap:balance;line-height:1.0">{{cover_headline}} <em style="font-style:italic;color:var(--gold)">{{cover_headline_gold}}</em></h1><p style="font-size:38px;line-height:1.45;color:var(--soft);margin:0;text-wrap:pretty;">{{cover_sub}}</p></div><div style="display:flex;justify-content:space-between;align-items:center;gap:24px;"><div style="flex:1;height:4px;background:var(--rule);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;width:{{progress_pct}}%;background:var(--gold)"></span></div><span style="font-family:'Geist Mono',monospace;font-size:20px;letter-spacing:0.12em;color:var(--gold2);">SWIPE →</span></div></div>
+<!-- repeat: lessons --><div class="slide dark" id="lessons_learned_lesson_dark" data-design="lessons_learned" data-repeat="lessons" style="width:1080px;height:1350px;flex:0 0 auto;background:var(--bg);padding:80px;display:flex;flex-direction:column;overflow:hidden;position:relative;font-family:'Geist',Arial,sans-serif;color:var(--ink)"><div style="display:flex;justify-content:space-between;align-items:center;gap:24px;"><span style="font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.14em;color:var(--gold2);">{{lesson_label}} {{lesson_no}}</span><span style="font-family:'Geist Mono',monospace;font-size:22px;letter-spacing:0.1em;color:var(--mute);">{{slide_no}} / {{slide_total}}</span></div><div style="flex:1;display:flex;flex-direction:column;padding:48px 0 56px"><span style="align-self:flex-end;font-family:'Newsreader',serif;font-style:italic;font-size:280px;line-height:0.8;letter-spacing:-0.04em;color:var(--gold)">{{lesson_no}}</span><div style="margin-top:auto;display:flex;flex-direction:column;gap:36px;padding-top:40px;border-top:2px solid var(--rule)"><h1 style="font-family:'Newsreader',serif;font-weight:400;font-size:92px;line-height:1.03;letter-spacing:-0.025em;margin:0;color:var(--ink);text-wrap:balance;">{{lesson_title}} <em style="font-style:italic;color:var(--gold)">{{lesson_title_gold}}</em></h1><p style="font-size:36px;line-height:1.45;color:var(--soft);margin:0;text-wrap:pretty;">{{lesson_text}}</p></div></div><div style="display:flex;justify-content:space-between;align-items:center;gap:24px;"><div style="flex:1;height:4px;background:var(--rule);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;width:{{progress_pct}}%;background:var(--gold)"></span></div><span style="font-family:'Geist Mono',monospace;font-size:20px;letter-spacing:0.12em;color:var(--gold2);">SWIPE →</span></div></div>
+<!-- /repeat: lessons --><div class="slide dark" id="lessons_learned_cta_dark" data-design="lessons_learned" style="width:1080px;height:1350px;flex:0 0 auto;background:var(--bg2);padding:80px;display:flex;flex-direction:column;overflow:hidden;position:relative;font-family:'Geist',Arial,sans-serif;color:var(--ink)"><div style="display:flex;justify-content:space-between;align-items:center;gap:24px;"><span style="font-family:'Geist Mono',monospace;font-size:24px;letter-spacing:0.14em;color:var(--gold2);">{{cta_label}}</span><span style="font-family:'Geist Mono',monospace;font-size:22px;letter-spacing:0.1em;color:var(--mute);">{{slide_no}} / {{slide_total}}</span></div><div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:44px;align-items:center;text-align:center"><img src="assets/logos/baroni-lockup-stacked-on-dark.png" alt="Baroni Applied Intelligence" style="display:block;height:200px;width:auto"><h1 style="font-family:'Newsreader',serif;font-weight:400;font-size:92px;line-height:1.03;letter-spacing:-0.025em;margin:0;color:var(--ink);text-wrap:balance;text-align:center">{{cta_headline}} <em style="font-style:italic;color:var(--gold)">{{cta_headline_gold}}</em></h1><div style="padding:26px 44px;border:2px solid var(--ink);font-size:34px;font-weight:500">{{cta_button}}</div><span style="font-family:'Geist Mono',monospace;font-size:20px;letter-spacing:0.12em;color:var(--mute);">{{cta_note}}</span></div><div style="display:flex;justify-content:space-between;align-items:center;gap:24px;"><div style="flex:1;height:4px;background:var(--rule);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;width:{{progress_pct}}%;background:var(--gold)"></span></div><span style="font-family:'Geist Mono',monospace;font-size:20px;letter-spacing:0.12em;color:var(--gold2);">END</span></div></div>
+</main>
+<div class="fields"><div class="fg"><div class="fc"><code>{{label}}</code><span>max 2 words</span></div><div class="fc"><code>{{lesson_count}}</code><span>max 1 word</span></div><div class="fc"><code>{{cover_headline}}</code><span>max 4 words</span></div><div class="fc"><code>{{cover_headline_gold}}</code><span>max 2 words</span></div><div class="fc"><code>{{cover_sub}}</code><span>max 10 words</span></div><div class="fc"><code>{{lesson_label}}</code><span>max 1 word</span></div><div class="fc"><code>{{cta_label}}</code><span>max 2 words</span></div><div class="fc"><code>{{cta_headline}}</code><span>max 3 words</span></div><div class="fc"><code>{{cta_headline_gold}}</code><span>max 4 words</span></div><div class="fc"><code>{{cta_button}}</code><span>max 5 words</span></div><div class="fc"><code>{{cta_note}}</code><span>max 6 words</span></div><div class="fc"><code>{{slide_no}}</code><span>auto</span></div><div class="fc"><code>{{slide_total}}</code><span>auto</span></div><div class="fc"><code>{{progress_pct}}</code><span>auto: 0–100</span></div><div class="fc"><code>{{lesson_no}}</code><span>auto: 01, 02…</span></div></div><div class="rp"><div class="rh">repeat: <code>lessons</code> · 3–5 slides</div><div class="fg"><div class="fc"><code>{{lesson_title}}</code><span>max 4 words</span></div><div class="fc"><code>{{lesson_title_gold}}</code><span>max 4 words</span></div><div class="fc"><code>{{lesson_text}}</code><span>max 13 words</span></div></div></div></div>
+</div>
+<script type="application/json" id="sample-data">{"lessons_learned":{"f":{"label":"LESSONS LEARNED","lesson_count":"5","cover_headline":"things my first pipeline","cover_headline_gold":"taught me.","cover_sub":"Mistakes included, especially the ones that cost me a weekend.","lesson_label":"LESSON","cta_label":"YOUR TURN","cta_headline":"Building something similar?","cta_headline_gold":"Compare notes with me.","cta_button":"Send me a message →","cta_note":"SAVE THIS FOR YOUR FIRST BUILD"},"r":{"lessons":[{"lesson_title":"Automate the boring part","lesson_title_gold":"first.","lesson_text":"The clever bit never saves the most time. The copy and paste does."},{"lesson_title":"Your data is","lesson_title_gold":"messier than you think.","lesson_text":"I spent more time cleaning spreadsheets than writing prompts. Budget for it."},{"lesson_title":"Always keep","lesson_title_gold":"a human checkpoint.","lesson_text":"One wrong email to a client costs more than every hour you saved."},{"lesson_title":"Log everything,","lesson_title_gold":"even the boring runs.","lesson_text":"When something breaks at 2am, the log is the only witness you have."},{"lesson_title":"Ship it small,","lesson_title_gold":"then let it grow.","lesson_text":"Version one did a single job. That was enough to earn version two."}]},"min":{"lessons":3}}}</script>
+<script>
+(function(){
+  var RAW=/[?&]raw\b/.test(location.search);
+  var root=document.getElementById('designs');
+  var data=JSON.parse(document.getElementById('sample-data').textContent);
+  var pristine=root.innerHTML;
+  var pad=function(n){return (n<10?'0':'')+n;};
+  var esc=function(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');};
+  var fill=function(h,o){return h.replace(/\{\{(\w+)\}\}/g,function(m,k){return k in o?esc(o[k]):m;});};
+  function render(mode){
+    root.innerHTML=pristine;
+    if(mode==='fields') return;
+    root.querySelectorAll('[data-repeat]').forEach(function(el){
+      var host=el.closest('[data-design]'), d=data[host.dataset.design], name=el.dataset.repeat;
+      if(!d||!d.r[name]) return;
+      var list=d.r[name], n=mode==='min'?d.min[name]:list.length, out='';
+      for(var i=0;i<n;i++){var c=Object.assign({},list[i],{item_no:pad(i+1),lesson_no:pad(i+1)});out+=fill(el.outerHTML,c).replace(/ id="(\w+)"/,' id="$1_'+(i+1)+'"');}
+      el.insertAdjacentHTML('beforebegin',out); el.remove();
+    });
+    var groups={};
+    root.querySelectorAll('.slide').forEach(function(s){var g=s.dataset.design+'|'+s.classList[1];(groups[g]=groups[g]||[]).push(s);});
+    Object.keys(groups).forEach(function(g){
+      var list=groups[g];
+      list.forEach(function(s,i){
+        var d=data[s.dataset.design]||{f:{}};
+        s.innerHTML=fill(s.innerHTML,Object.assign({},d.f,{slide_no:pad(i+1),slide_total:pad(list.length),progress_pct:Math.round((i+1)/list.length*100),lesson_count:d.f.lesson_count&&mode==='min'?String(d.min.lessons):d.f.lesson_count}));
+      });
+    });
+  }
+  if(RAW) return;
+  
+  var btns=document.querySelectorAll('.modes button');btns.forEach(function(b){b.addEventListener('click',function(){btns.forEach(function(x){x.setAttribute('aria-pressed',x===b);});render(b.dataset.mode);});});render('max');
+})();
+</script>
+</body>
+</html>

@@ -1,288 +1,113 @@
-"""The template catalog: each brand template's fields, word limits, and when it fits.
+"""The template catalog: every Baroni post design, what kind of post it suits, and which
+of the rotation's media pairings it can serve.
 
-The shapes mirror the Baroni post templates (D:\\Work\\! Branding\\Post Templates.dc.html).
-Limits follow the brand guide: 25 words max on a single post, 40 per carousel slide.
-`numeric_fields` name the fields whose numbers must appear in the post or its source -
-a visual never shows a figure the post didn't actually contain.
+The designs themselves (layout, fields, word limits, item counts) come straight from
+the Claude Design files in designs/ - see designs.py. This file only adds the one thing
+those files can't know: when each design is the right choice. Alternate (`_alt`) and
+dark (`_dark`) versions inherit their base design's description and pairings.
 """
 
-import pydantic
+from dataclasses import dataclass, field
+
+from linkedin_content_engine.visuals_engine.designs import Design, load_designs
+
+# Base designs only. `when` is shown to the model choosing a design.
+WHEN: dict[str, str] = {
+    "statement": "One strong opinion or one-line takeaway.",
+    "quote": "A memorable line the post itself says (your own words, never a made-up quote).",
+    "big_number": "A real before/after result stated in the post (e.g. 6 hours to 40 minutes).",
+    "before_after": "A clear change: how something worked before vs after.",
+    "list": "Several parallel points, tips, rules or steps.",
+    "photo_intro": "A post with your own photo: events, behind the scenes, introductions.",
+    "myth_fact": "Correcting a common misconception; a contrarian take.",
+    "announcement": "Something new: a launch, availability, a milestone announcement.",
+    "how_it_works": "A process or method in a few steps, with the human step called out.",
+    "case_study": "A real project: the problem, what was built, a measured result stated in the post.",
+    "hot_take": "One bold opinion plus a one-line reason, inviting people to disagree.",
+    "this_vs_that": "Two options compared side by side, with a verdict.",
+    "tool_spotlight": "An AI tool or model you tried: what it is, what it's good at, your verdict.",
+    "milestone": "Degree or project progress with real counts from the post (e.g. module 3 of 8).",
+    "open_question": "An open question you're thinking about, with your current answer.",
+    "timeline": "3-5 dated points showing how something developed (dates from the post or source).",
+    "stat_context": "One real figure from a news story or source, where it's from, and what it means.",
+    "news_breakdown": "Commentary on an AI news story: what happened, why it matters, your take.",
+    "lessons_learned": "What you learned from something, one lesson per slide.",
+    "build_log": "A project you're building: the problem, what you built, what broke, what's next.",
+}
+
+# Which designs suit each media pairing the rotation picked (base keys; their
+# alternate and dark versions come along automatically).
+PAIRING_TEMPLATES: dict[str, list[str]] = {
+    "carousel": ["how_it_works", "case_study", "news_breakdown", "lessons_learned", "build_log"],
+    "infographic": ["list", "before_after", "myth_fact", "this_vs_that", "tool_spotlight", "timeline", "big_number"],
+    "chart": ["big_number", "stat_context", "before_after", "milestone", "timeline"],
+    "candid_photo": ["photo_intro", "statement", "quote", "milestone"],
+    "screenshot": ["statement", "quote", "hot_take", "open_question", "tool_spotlight"],
+    "text_only": ["statement", "quote", "hot_take", "open_question", "list"],  # only when you ask for a visual by hand
+}
 
 
-def _words(text: str | None) -> int:
-    return len((text or "").split())
-
-
-class Limit(pydantic.BaseModel):
-    max_words: int = 0  # 0 = not word-limited
-    max_chars: int = 0  # 0 = not char-limited
-    required: bool = True
-
-
-class _Slots(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra="ignore")
-
-
-class Statement(_Slots):
-    label: str
-    headline: str
-    headline_gold: str
-
-
-class Quote(_Slots):
-    label: str
-    quote: str
-    quote_gold: str
-
-
-class BigNumber(_Slots):
-    label: str
-    before_value: str = ""
-    after_value: str
-    caption: str
-    stats: list[str] = []
-
-
-class BeforeAfter(_Slots):
-    label: str
-    headline: str
-    headline_gold: str
-    before: list[str]
-    after: list[str]
-
-
-class ListPost(_Slots):
-    label: str
-    headline: str
-    headline_gold: str
-    items: list[str]
-
-
-class PhotoIntro(_Slots):
-    label: str
-    headline: str
-    headline_gold: str
-    line: str
-
-
-class MythFact(_Slots):
-    label: str
-    myth: str
-    fact: str
-    fact_gold: str
-    fact_line: str
-
-
-class Announcement(_Slots):
-    label: str
-    headline: str
-    headline_gold: str
-    button: str
-
-
-class Step(pydantic.BaseModel):
-    name: str
-    line: str
-
-
-class DashRow(pydantic.BaseModel):
-    label: str
-    value: str
-
-
-class HowItWorks(_Slots):
-    label: str
-    headline: str
-    headline_gold: str
-    subline: str
-    steps: list[Step]
-    you_bring: str = ""
-    strip: list[str] = []
-    strip_you: int = 0
-    dashboard_title: str = ""
-    dashboard: list[DashRow] = []
-    cta_headline: str
-    cta_gold: str
-    cta_button: str
-    cta_small: str = "Link in comments · save for later"
-
-
-class BuildStep(pydantic.BaseModel):
-    name: str
-    desc: str
-
-
-class Stat(pydantic.BaseModel):
-    value: str
-    label: str
-
-
-class CaseStudy(_Slots):
-    label: str
-    headline: str
-    headline_gold: str
-    subline: str
-    problem_headline: str
-    problem_gold: str
-    problems: list[str]
-    build_headline: str
-    build_gold: str
-    build_steps: list[BuildStep]
-    you_step: int = 0
-    before_value: str = ""
-    after_value: str
-    result_caption: str
-    result_stats: list[Stat] = []
-    lesson: str
-    lesson_gold: str
-    lesson_line: str
-    cta_headline: str
-    cta_gold: str
-    cta_button: str
-    cta_small: str = "Link in comments · save for later"
-
-
-class TemplateSpec(pydantic.BaseModel):
+@dataclass
+class TemplateSpec:
     key: str
     name: str
-    model: type
-    slides: int = 1
-    height: int = 1350
-    when: str  # what kind of post it suits - shown to the model choosing a template
-    shape: str  # the JSON shape and word limits - shown to the model filling it
-    numeric_fields: list[str] = []
-    needs_photo: bool = False
-    list_lengths: dict[str, tuple[int, int]] = {}
-    word_limits: dict[str, int] = {}
-    # An alternate layout of another template ("statement_b" of "statement"): same
-    # kind of post, different look. It's offered wherever its base template is.
+    design: Design
+    when: str
     variant_of: str = ""
+    height: int = 1350
+    needs_photo: bool = False
+    slides: int = 1
+    word_limits: dict[str, int] = field(default_factory=dict)
+    list_lengths: dict[str, tuple[int, int]] = field(default_factory=dict)
+
+    @property
+    def shape(self) -> str:
+        return self.design.shape()
 
 
-CATALOG: dict[str, TemplateSpec] = {
-    "statement": TemplateSpec(
-        key="statement",
-        name="Statement",
-        model=Statement,
-        when="One strong opinion or one-line takeaway.",
-        shape='{"label": "2-4 words, e.g. POINT OF VIEW", "headline": "<=8 words", "headline_gold": "<=5 words, the payoff"}',
-        word_limits={"label": 4, "headline": 8, "headline_gold": 5},
-    ),
-    "quote": TemplateSpec(
-        key="quote",
-        name="Quote",
-        model=Quote,
-        when="A memorable line the post itself says (James's own words - never a made-up quote from anyone else).",
-        shape='{"label": "2-4 words, e.g. IN MY WORDS", "quote": "<=16 words, taken from the post", "quote_gold": "<=6 words, the end of the quote"}',
-        word_limits={"label": 4, "quote": 16, "quote_gold": 6},
-    ),
-    "big_number": TemplateSpec(
-        key="big_number",
-        name="Big number",
-        model=BigNumber,
-        when="A real result or metric stated in the post (e.g. 6 hours to 40 minutes).",
-        shape='{"label": "2-5 words", "before_value": "optional, <=6 chars e.g. 6h", "after_value": "<=6 chars e.g. 40m", '
-        '"caption": "<=16 words", "stats": ["0-3 items, each <=3 words, e.g. 3 CHANNELS"]}',
-        numeric_fields=["before_value", "after_value", "stats"],
-        list_lengths={"stats": (0, 3)},
-        word_limits={"label": 5, "caption": 16},
-    ),
-    "before_after": TemplateSpec(
-        key="before_after",
-        name="Before / after",
-        model=BeforeAfter,
-        when="A clear change: how something worked before vs after.",
-        shape='{"label": "2-4 words", "headline": "<=5 words", "headline_gold": "<=4 words", '
-        '"before": ["exactly 4 items, each <=6 words"], "after": ["exactly 4 items, each <=6 words"]}',
-        list_lengths={"before": (4, 4), "after": (4, 4)},
-        word_limits={"label": 4, "headline": 5, "headline_gold": 4},
-    ),
-    "list": TemplateSpec(
-        key="list",
-        name="List",
-        model=ListPost,
-        when="Several parallel points, tips, rules or steps.",
-        shape='{"label": "2-5 words, e.g. FIELD NOTES · 5 RULES", "headline": "<=6 words", "headline_gold": "<=4 words", '
-        '"items": ["3-5 items, each <=8 words"]}',
-        list_lengths={"items": (3, 5)},
-        word_limits={"label": 5, "headline": 6, "headline_gold": 4},
-    ),
-    "photo_intro": TemplateSpec(
-        key="photo_intro",
-        name="Photo intro",
-        model=PhotoIntro,
-        when="A post with James's own photo: events, behind the scenes, introductions.",
-        shape='{"label": "2-4 words", "headline": "<=7 words", "headline_gold": "<=5 words", "line": "<=12 words"}',
-        needs_photo=True,
-        word_limits={"label": 4, "headline": 7, "headline_gold": 5, "line": 12},
-    ),
-    "myth_fact": TemplateSpec(
-        key="myth_fact",
-        name="Myth / fact",
-        model=MythFact,
-        when="Correcting a common misconception; a contrarian take.",
-        shape='{"label": "2-4 words, e.g. MYTH / FACT", "myth": "<=10 words", "fact": "<=6 words", "fact_gold": "<=5 words", "fact_line": "<=12 words"}',
-        word_limits={"label": 4, "myth": 10, "fact": 6, "fact_gold": 5, "fact_line": 12},
-    ),
-    "announcement": TemplateSpec(
-        key="announcement",
-        name="Announcement",
-        model=Announcement,
-        height=1080,
-        when="Something new: a launch, an event, availability, a milestone.",
-        shape='{"label": "1-3 words, e.g. NOW BOOKING", "headline": "<=6 words", "headline_gold": "<=4 words", "button": "<=6 words call to action"}',
-        word_limits={"label": 3, "headline": 6, "headline_gold": 4, "button": 6},
-    ),
-    "how_it_works": TemplateSpec(
-        key="how_it_works",
-        name="Carousel: how it works",
-        model=HowItWorks,
-        slides=5,
-        when="A process or method in 3 steps.",
-        shape='{"label": "2-5 words", "headline": "<=7 words", "headline_gold": "<=4 words", "subline": "<=10 words", '
-        '"steps": [{"name": "1-3 words", "line": "<=14 words"}, exactly 3], "you_bring": "optional <=8 words", '
-        '"strip": ["optional: exactly 4 one/two-word stages"], "strip_you": "optional 1-4: the human stage", '
-        '"dashboard_title": "optional", "dashboard": [{"label": "<=3 words", "value": "a REAL number from the post"}, 0-3], '
-        '"cta_headline": "<=6 words", "cta_gold": "<=4 words", "cta_button": "<=6 words", "cta_small": "<=6 words"}',
-        numeric_fields=["dashboard"],
-        list_lengths={"steps": (3, 3), "strip": (0, 4), "dashboard": (0, 3)},
-        word_limits={"label": 5, "headline": 7, "headline_gold": 4, "subline": 10, "you_bring": 8,
-                     "cta_headline": 6, "cta_gold": 4, "cta_button": 6, "cta_small": 6},
-    ),
-    "case_study": TemplateSpec(
-        key="case_study",
-        name="Carousel: case study",
-        model=CaseStudy,
-        slides=6,
-        when="A real project with a problem, what was built, and a measured result stated in the post.",
-        shape='{"label": "2-5 words", "headline": "<=6 words", "headline_gold": "<=4 words", "subline": "<=18 words", '
-        '"problem_headline": "<=6 words", "problem_gold": "<=4 words", "problems": ["exactly 3, each <=10 words"], '
-        '"build_headline": "<=4 words", "build_gold": "<=3 words", "build_steps": [{"name": "<=3 words", "desc": "<=7 words"}, 3-5], '
-        '"you_step": "0-5: which build step is the human one, 0 for none", "before_value": "optional <=6 chars", '
-        '"after_value": "<=6 chars, a REAL number from the post", "result_caption": "<=10 words", '
-        '"result_stats": [{"value": "REAL number", "label": "<=3 words"}, 0-2], "lesson": "<=8 words", "lesson_gold": "<=6 words", '
-        '"lesson_line": "<=14 words", "cta_headline": "<=6 words", "cta_gold": "<=4 words", "cta_button": "<=6 words", "cta_small": "<=6 words"}',
-        numeric_fields=["before_value", "after_value", "result_stats"],
-        list_lengths={"problems": (3, 3), "build_steps": (3, 5), "result_stats": (0, 2)},
-        word_limits={"label": 5, "headline": 6, "headline_gold": 4, "subline": 18, "problem_headline": 6,
-                     "problem_gold": 4, "build_headline": 4, "build_gold": 3, "result_caption": 10, "lesson": 8,
-                     "lesson_gold": 6, "lesson_line": 14, "cta_headline": 6, "cta_gold": 4, "cta_button": 6, "cta_small": 6},
-    ),
-}
+def _base_of(key: str) -> str:
+    """statement_alt_dark -> statement_alt -> statement."""
+    if key.endswith("_dark"):
+        return key[: -len("_dark")]
+    if key.endswith("_alt"):
+        return key[: -len("_alt")]
+    return ""
 
-# Which templates suit each media pairing the rotation picked for a post.
-PAIRING_TEMPLATES: dict[str, list[str]] = {
-    "carousel": ["how_it_works", "case_study"],
-    "infographic": ["list", "before_after", "myth_fact", "big_number"],
-    "chart": ["big_number", "before_after"],
-    "candid_photo": ["photo_intro", "statement", "quote"],
-    "screenshot": ["statement", "quote"],
-    "text_only": ["statement", "quote", "list"],  # only used when you ask for a visual by hand
-}
+
+# Item caps tighter than the design file's own max, where rendering showed the max
+# pushing the footer into the bottom margin (checked at max sample text).
+_MAX_ITEMS: dict[str, dict[str, int]] = {"before_after_alt": {"pairs": 4}}
+
+
+def _build_catalog() -> dict[str, TemplateSpec]:
+    catalog = {}
+    for key, d in load_designs().items():
+        for repeat, cap in _MAX_ITEMS.get(key.removesuffix("_dark"), {}).items():
+            lo, hi = d.list_lengths[repeat]
+            d.list_lengths[repeat] = (lo, min(hi, cap))
+        root = key
+        while _base_of(root):
+            root = _base_of(root)
+        catalog[key] = TemplateSpec(
+            key=key,
+            name=d.name,
+            design=d,
+            when=WHEN.get(root, d.name),
+            variant_of=_base_of(key),
+            height=d.height,
+            needs_photo=d.needs_photo,
+            slides=d.slide_count(),
+            word_limits=d.model_fields,
+            list_lengths=d.list_lengths,
+        )
+    return catalog
+
+
+CATALOG: dict[str, TemplateSpec] = _build_catalog()
 
 
 def _root(key: str) -> str:
-    """The original template a variant descends from (statement_b_dark -> statement)."""
+    """The original design a variant descends from (statement_alt_dark -> statement)."""
     seen = set()
     while CATALOG.get(key) and CATALOG[key].variant_of and key not in seen:
         seen.add(key)
@@ -300,11 +125,11 @@ def candidate_templates(
     recent: set[str] | None = None,
     dark: bool | None = None,
 ) -> list[str]:
-    """Templates that suit the pairing (plus any layout/dark variants of them), minus
-    any used on the last few posts - so the same look doesn't come round twice running.
+    """Designs that suit the pairing (plus their alternate/dark versions), minus any
+    used on the last few posts - so the same look doesn't come round twice running.
     `dark` picks the light or dark set (None = either). Each filter only applies if
-    something is left after it, so a missing dark version falls back to light."""
-    base = PAIRING_TEMPLATES.get(media_pairing or "", list(CATALOG))
+    something is left after it."""
+    base = PAIRING_TEMPLATES.get(media_pairing or "", [k for k in CATALOG if not _base_of(k)])
     keys = [k for k in base if k in CATALOG] + [k for k in CATALOG if k not in base and _root(k) in base]
     keys = [k for k in keys if has_photo or not CATALOG[k].needs_photo] or ["statement"]
     if dark is not None:
