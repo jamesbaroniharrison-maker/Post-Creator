@@ -37,7 +37,7 @@ echo.
 REM --- Start the app server in its own window, so this window can watch for it
 REM     to be ready and then open the browser automatically. ---
 echo Starting the app server...
-start "Content Engine - SERVER (leave this open while you work)" cmd /k "call ..\venv\Scripts\activate.bat && reflex run"
+start "Content Engine - SERVER (leave this open while you work)" cmd /k "..\venv\Scripts\python.exe -m reflex run"
 
 echo Waiting for it to finish starting...
 set /a attempts=0

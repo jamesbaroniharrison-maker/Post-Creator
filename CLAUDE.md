@@ -1518,3 +1518,26 @@ numbers. App compiles and serves (`/posts` 200).
   rejected by the number check. Verified live on how_it_works: TOF -> "Tell me your
   version", BOF -> "Free 20-min scope call", dashboard rows "3 hours"/"30 minutes"
   copied exactly.
+
+## Launcher ran on the Ben Holmes venv; folder rename prepared (3 Oct 2026)
+
+- **Real bug**: `venv/` was originally created inside the Ben Holmes project and copied
+  here. Its `activate.bat` sets `VIRTUAL_ENV` to the Ben Holmes venv, and `reflex.exe`
+  embeds the Ben Holmes `python.exe`. So `Start Content Engine.bat` (`call
+  activate.bat && reflex run`) has been running the dashboard on the *other* project's
+  interpreter. Scheduled tasks and all testing call `venv\Scripts\python.exe` directly
+  (location-independent - it reads `pyvenv.cfg`'s base-Python `home`), so they were
+  unaffected. The launcher now runs `..\venv\Scripts\python.exe -m reflex run`. Never
+  use the venv's `activate*` scripts or `Scripts\*.exe` wrappers here - they point at
+  the wrong project.
+- The launcher had silently gone back to LF line endings (the CRLF fix from before
+  didn't survive git normalisation). Converted back, and `.gitattributes` now pins
+  `*.bat text eol=crlf`.
+- **Folder rename** ("New folder" -> "LinkedIn Post Generator"): can't be done from
+  inside a session (VS Code and the session hold the folder open). `D:\Work\AI
+  Projects\Rename to LinkedIn Post Generator.bat` (outside the repo) does it in one go:
+  self-elevates, renames, re-runs both `register_*.ps1` with the current times (07:00
+  research, 09:00 reminder, 12:00 digest - which also finally applies the 90-minute
+  research time limit), and copies Claude Code's project memory dir to the new
+  path-derived name. Dry-run tested against a temp folder: renames, copies memory,
+  safe to run twice. No code references the folder name.
