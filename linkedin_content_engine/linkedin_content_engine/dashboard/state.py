@@ -80,6 +80,7 @@ REJECTION_REASONS = ["not relevant", "wrong tone", "already covered"]
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 DISPLAY_DAYS = [*WEEKDAYS, "Unscheduled"]
 POST_TYPES = ["ai_commentary", "market_commentary", "personal_reflection"]
+REVIEW_GROUPS = [*POST_TYPES, "other"]  # Review is grouped by post type, in this order
 DAY_TEMPLATE_OPTIONS = [*POST_TYPES, "no_post"]
 _WEEKDAY_FIELDS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 TOPIC_CATEGORIES = ["ai", "market"]
@@ -1191,11 +1192,11 @@ class DashboardState(rx.State):
         self.stats_by_week = _breakdown(week_counts, sort_by_count=False)
 
     @rx.var
-    def posts_by_day(self) -> dict[str, list[PostView]]:
-        buckets: dict[str, list[PostView]] = {day: [] for day in DISPLAY_DAYS}
+    def posts_by_type(self) -> dict[str, list[PostView]]:
+        """Review's groups: one per post type, plus "other" for anything unexpected."""
+        buckets: dict[str, list[PostView]] = {t: [] for t in REVIEW_GROUPS}
         for p in self.posts:
-            key = p.suggested_day if p.suggested_day in WEEKDAYS else "Unscheduled"
-            buckets[key].append(p)
+            buckets[p.post_type if p.post_type in POST_TYPES else "other"].append(p)
         return buckets
 
     def _find_post(self, post_id: int) -> PostView | None:
