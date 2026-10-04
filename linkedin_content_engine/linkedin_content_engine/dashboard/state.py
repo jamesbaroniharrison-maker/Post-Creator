@@ -8,7 +8,6 @@ stats update) has to run end to end without touching code.
 import base64
 import json
 import pathlib
-import random
 import tempfile
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -33,11 +32,16 @@ from linkedin_content_engine.drafting_engine.rotation import (
     MEDIA_PAIRINGS,
     STRUCTURAL_FORMATS,
 )
-from linkedin_content_engine.email_engine.reminder import PROMPT_POOL
 from linkedin_content_engine.email_engine.settings import get_email_settings, save_email_settings
 from linkedin_content_engine.holidays import holiday_for_date
 from linkedin_content_engine.calendar_engine.pipeline import try_link_now
-from linkedin_content_engine.planning import draft_from_bank_row, next_week_monday, prepare_week
+from linkedin_content_engine.planning import (
+    NO_PERSONAL_WEEKLY_CAP,
+    draft_from_bank_row,
+    next_week_monday,
+    prepare_week,
+    unused_personal_updates,
+)
 from linkedin_content_engine.exports import build_bundle
 from linkedin_content_engine.visuals_engine.attach import make_visual_for_post
 from linkedin_content_engine.visuals_engine.spec import CATALOG
@@ -45,6 +49,7 @@ from linkedin_content_engine.models import (
     CalendarEvent,
     ForcedTopic,
     JobRun,
+    PersonalUpdate,
     PlannedNote,
     Post,
     TopicBank,
@@ -305,6 +310,17 @@ class VoiceRegisterHealthView(pydantic.BaseModel):
     status_text: str = ""
 
 
+class PersonalUpdateView(pydantic.BaseModel):
+    """One saved Personal update on Home."""
+
+    id: int
+    text: str
+    photo_names: list[str] = []  # upload-dir file names; the page builds the URLs
+    photo_count: int = 0
+    added_label: str = ""  # "Added 4 Oct"
+    used_label: str = ""  # "Used in a draft on 6 Oct" - empty while still waiting
+
+
 class PlannedNoteView(pydantic.BaseModel):
     id: int
     target_date: str
@@ -484,6 +500,11 @@ class DashboardState(rx.State):
     new_forced_topic_category: str = "ai"
 
     upload_text: str = ""
+    # Home > Personal updates: milestones/news (+ photos) saved for the next planned
+    # personal post. The only thing a planned personal post may be written from.
+    personal_text: str = ""
+    personal_updates: list[PersonalUpdateView] = []  # waiting to be used
+    personal_updates_used: list[PersonalUpdateView] = []  # recently used, for reference
 
     # Dictation (request: "a button that can be pressed to allow for voice to be recorded
     # and transcribed directly in"). target is "weekly" (Home's note box) or "redraft"
@@ -586,6 +607,7 @@ class DashboardState(rx.State):
             self._reload_stats()
             self._reload_job_status()
             self._reload_voice()
+            self._reload_personal_updates()
             if not self.link_target_date:
                 self.link_target_date = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
         except Exception as exc:  # noqa: BLE001
@@ -1674,12 +1696,11 @@ class DashboardState(rx.State):
 
     @rx.event(background=True)
     async def fill_week(self, monday: str):
-        """Catch-up button (request: "a draft this week's post button if for whatever
-        time they haven't come up... have a button per week") - tops that week's
-        committed (accepted/published) post count up to the weekly cap, pulling from
-        the best unused topic bank rows first and falling back to a rotating personal-
-        reflection prompt (same pool the email reminder uses) if the bank is empty, so
-        the button never just does nothing."""
+        """Catch-up button: tops that week's committed (accepted/published) posts up to
+        its target from the best unused topic bank rows. The target is WEEKLY_CAP when
+        the week already has a personal post, else NO_PERSONAL_WEEKLY_CAP. Never makes
+        up a personal post when the bank runs dry (hard rule, see planning.py) - it
+        stops and says so instead."""
         async with self:
             self.is_busy = True
             self.status_message = f"Filling the week of {monday}..."
@@ -1690,34 +1711,44 @@ class DashboardState(rx.State):
                 .select_from(Post)
                 .where(Post.scheduled_week == monday)
             ).one()
+            has_personal = session.exec(
+                sqlmodel.select(sqlmodel.func.count())
+                .select_from(Post)
+                .where(Post.scheduled_week == monday, Post.post_type == "personal_reflection")
+            ).one() > 0
+            target = WEEKLY_CAP if has_personal else NO_PERSONAL_WEEKLY_CAP
             bank_rows = session.exec(
                 sqlmodel.select(TopicBank)
-                .where(TopicBank.used == False, TopicBank.tier != "discard")  # noqa: E712
+                .where(
+                    TopicBank.used == False,  # noqa: E712
+                    TopicBank.tier != "discard",
+                    sqlmodel.col(TopicBank.calendar_event_id).is_(None),
+                )
                 .order_by(sqlmodel.col(TopicBank.tier).asc(), sqlmodel.col(TopicBank.date_found).desc())
-                .limit(WEEKLY_CAP)
+                .limit(target)
             ).all()
             bank_data = [(r.id, r.summary, r.source_title, r.source_url, r.category) for r in bank_rows]
 
-        needed = max(0, WEEKLY_CAP - committed)
+        needed = max(0, target - committed)
         generated = 0
         failed = False
-        for i in range(needed):
+        for i in range(min(needed, len(bank_data))):
             try:
-                if i < len(bank_data):
-                    _draft_from_bank_row(*bank_data[i])
-                else:
-                    generate_and_save_draft(
-                        random.choice(PROMPT_POOL), "personal_reflection", skip_research=True
-                    )
+                _draft_from_bank_row(*bank_data[i])
                 generated += 1
             except Exception:  # noqa: BLE001 - keep going, report what actually landed
                 failed = True
                 break
 
         if needed == 0:
-            message = f"Week of {monday} already has {committed}/{WEEKLY_CAP} posts committed."
+            message = f"Week of {monday} already has {committed}/{target} posts committed."
         elif failed:
             message = f"Generated {generated} of {needed} needed for the week of {monday} before a failure - check Review."
+        elif generated < needed:
+            message = (
+                f"Generated {generated} of {needed} for the week of {monday} - the topic bank ran out. "
+                "Run research, or add a Personal update on Home for a personal post."
+            )
         else:
             message = f"Generated {generated} draft(s) for the week of {monday} - check Review."
 
@@ -1743,13 +1774,16 @@ class DashboardState(rx.State):
             self.status_message = f"Planning the week of {monday}..."
 
         result = prepare_week(monday)
-        planned, skipped_no_post, failed = result["planned"], result["skipped_no_post"], result["failed"]
-
-        message = f"Planned {planned} day(s) for the week of {monday}"
-        if skipped_no_post:
-            message += f", {skipped_no_post} left as no-post"
-        if failed:
-            message += f", {failed} failed - check Review"
+        message = f"Planned {result['planned']} post(s) for the week of {monday}"
+        if result["personal"]:
+            message += " (one personal post from your updates)"
+        elif result["skipped_no_personal"]:
+            message += (
+                f". No personal post - nothing in Personal updates, so the week is kept to "
+                f"{NO_PERSONAL_WEEKLY_CAP} posts"
+            )
+        if result["failed"]:
+            message += f". {result['failed']} failed - check Review"
         message += "."
 
         async with self:
@@ -1759,6 +1793,107 @@ class DashboardState(rx.State):
             self._reload_bank()
             self._reload_planned_notes()
             self._reload_stats()
+
+    # ---- Home > Personal updates: milestones / news (+ photos) for personal posts ----
+
+    def _reload_personal_updates(self):
+        with rx.session(url=config.db_url) as session:
+            waiting = unused_personal_updates(session)
+            used = session.exec(
+                sqlmodel.select(PersonalUpdate)
+                .where(sqlmodel.col(PersonalUpdate.used_at).is_not(None))
+                .order_by(sqlmodel.col(PersonalUpdate.used_at).desc())
+                .limit(3)
+            ).all()
+
+        def view(u: PersonalUpdate) -> PersonalUpdateView:
+            photos = json.loads(u.photos or "[]")
+            return PersonalUpdateView(
+                id=u.id,
+                text=u.text,
+                photo_names=[ph["name"] for ph in photos if ph.get("name")],
+                photo_count=len(photos),
+                added_label=f"Added {u.created_at.strftime('%d %b')}",
+                used_label=f"Used in a draft on {u.used_at.strftime('%d %b')}" if u.used_at else "",
+            )
+
+        self.personal_updates = [view(u) for u in waiting]
+        self.personal_updates_used = [view(u) for u in used]
+
+    @rx.event
+    def set_personal_text(self, value: str):
+        self.personal_text = value
+
+    @rx.event
+    async def save_personal_update(self, files: list[rx.UploadFile]):
+        """Saves the text and photos straight away; captioning the photos (a slower
+        Gemini call) happens in the background afterwards. Upload handlers can't be
+        background events themselves."""
+        text = self.personal_text.strip()
+        if not text and not files:
+            self.status_message = "Write something or add a photo first."
+            return
+        names = []
+        for file in files[:5]:
+            name = f"personal-{uuid.uuid4().hex[:8]}-{pathlib.Path(file.name).name}"
+            dest = rx.get_upload_dir() / name
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(await file.read())
+            names.append(name)
+        with rx.session(url=config.db_url) as session:
+            row = PersonalUpdate(
+                text=text,
+                photos=json.dumps([{"name": n, "path": "", "caption": ""} for n in names]),
+                created_at=datetime.now(timezone.utc),
+            )
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            update_id = row.id
+        self.personal_text = ""
+        self._reload_personal_updates()
+        self.status_message = "Saved - the next planned personal post will be written from it."
+        if names:
+            return [rx.clear_selected_files("personal_upload"), DashboardState.caption_personal_photos(update_id)]
+        return rx.clear_selected_files("personal_upload")
+
+    @rx.event(background=True)
+    async def caption_personal_photos(self, update_id: int):
+        """Copies each photo to the persistent uploads folder (for the post image) and
+        captions it, so the drafting call knows what's in the picture. A failed
+        caption just leaves it blank - the photo is still used."""
+        with rx.session(url=config.db_url) as session:
+            row = session.get(PersonalUpdate, update_id)
+            photos = json.loads(row.photos or "[]") if row else []
+        for ph in photos:
+            try:
+                result = ingest_file(str(rx.get_upload_dir() / ph["name"]))
+                ph["path"] = result.get("stored_path") or ""
+                ph["caption"] = result.get("notes") or ""
+            except Exception:  # noqa: BLE001
+                ph["path"] = ph.get("path") or str(rx.get_upload_dir() / ph["name"])
+        with rx.session(url=config.db_url) as session:
+            row = session.get(PersonalUpdate, update_id)
+            if row:
+                row.photos = json.dumps(photos)
+                session.add(row)
+                session.commit()
+        async with self:
+            self._reload_personal_updates()
+
+    @rx.event
+    def delete_personal_update(self, update_id: int):
+        with rx.session(url=config.db_url) as session:
+            row = session.get(PersonalUpdate, update_id)
+            if row and row.used_at is None:
+                # A waiting update's photos aren't used anywhere else yet, so they go too.
+                for ph in json.loads(row.photos or "[]"):
+                    for path in (rx.get_upload_dir() / ph.get("name", ""), pathlib.Path(ph.get("path") or "")):
+                        if path.name and path.is_file():
+                            path.unlink(missing_ok=True)
+                session.delete(row)
+                session.commit()
+        self._reload_personal_updates()
 
     # ---- quick actions: generate post now, run research now, forced-topic queue ----
 
@@ -2123,6 +2258,8 @@ class DashboardState(rx.State):
                 return
             if target == "weekly":
                 self.upload_text = f"{self.upload_text.rstrip()} {text}".strip()
+            elif target == "personal":
+                self.personal_text = f"{self.personal_text.rstrip()} {text}".strip()
             elif target == "redraft":
                 post = self._find_post(post_id)
                 if post:

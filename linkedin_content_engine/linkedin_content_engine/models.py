@@ -168,6 +168,23 @@ class PlannedNote(rx.Model, table=True):
     source_bank_id: int | None = sqlmodel.Field(foreign_key="topicbank.id", default=None)
 
 
+class PersonalUpdate(rx.Model, table=True):
+    """A milestone, win or bit of news saved from Home > Personal updates, with
+    optional photos, waiting to become the week's personal post. Planning
+    (planning.py) writes the next personal post from the unused ones and marks them
+    used. This is the only material a planned personal post may be written from:
+    with none here, no personal post is made up (hard rule, see CLAUDE.md).
+    """
+
+    text: str
+    # JSON list of {"path": stored copy for drafting/visuals, "name": upload-dir file
+    # for the dashboard preview, "caption": short factual caption or ""}.
+    photos: str = ""
+    created_at: datetime
+    used_at: datetime | None = None
+    used_post_id: int | None = None
+
+
 class WeeklyTemplate(rx.Model, table=True):
     """Single-row settings: what kind of post (or none) each day of the week defaults
     to (request: "choose which days the certain types of post... it also needs an

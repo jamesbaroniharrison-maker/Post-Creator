@@ -13,7 +13,7 @@ from linkedin_content_engine.dashboard.components import (
     type_select,
 )
 from linkedin_content_engine.dashboard.recorder import record_button
-from linkedin_content_engine.dashboard.state import POST_TYPES, DashboardState
+from linkedin_content_engine.dashboard.state import POST_TYPES, DashboardState, PersonalUpdateView
 
 
 def _stats_panel() -> rx.Component:
@@ -116,13 +116,135 @@ def _upload_box() -> rx.Component:
     )
 
 
+def _personal_update_card(item: PersonalUpdateView) -> rx.Component:
+    return rx.card(
+        rx.vstack(
+            rx.hstack(
+                rx.text(item.added_label, size="1", class_name="hud-muted"),
+                rx.cond(
+                    item.used_label != "",
+                    rx.badge(item.used_label, variant="soft", color_scheme="green", size="1"),
+                    rx.badge("Waiting for the next personal post", variant="soft", color_scheme="bronze", size="1"),
+                ),
+                rx.spacer(),
+                rx.cond(
+                    item.used_label == "",
+                    rx.icon(
+                        "x",
+                        size=14,
+                        cursor="pointer",
+                        on_click=DashboardState.delete_personal_update(item.id),
+                    ),
+                    rx.fragment(),
+                ),
+                width="100%",
+                align="center",
+                wrap="wrap",
+            ),
+            rx.cond(item.text != "", rx.text(item.text, size="2", white_space="pre-wrap"), rx.fragment()),
+            rx.cond(
+                item.photo_names.length() > 0,
+                rx.hstack(
+                    rx.foreach(
+                        item.photo_names,
+                        lambda n: rx.image(
+                            src=rx.get_upload_url(n),
+                            width="96px",
+                            height="96px",
+                            object_fit="cover",
+                            border="1px solid var(--border)",
+                            loading="lazy",
+                        ),
+                    ),
+                    spacing="2",
+                    wrap="wrap",
+                ),
+                rx.fragment(),
+            ),
+            spacing="2",
+            width="100%",
+        ),
+        width="100%",
+    )
+
+
+def _personal_updates_box() -> rx.Component:
+    """Milestones and news, with photos, saved for the next planned personal post -
+    the only thing a planned personal post is ever written from (planning.py)."""
+    return rx.vstack(
+        rx.heading("Personal updates", size="5"),
+        rx.text(
+            "Milestones, wins, news, things that happened - in your own words, as much detail as you like. "
+            "Next time the week is planned, one personal post is written from what's here (with a photo, "
+            "if you add one), and these are marked used.",
+            size="2",
+            class_name="hud-muted",
+        ),
+        rx.text_area(
+            value=DashboardState.personal_text,
+            on_change=DashboardState.set_personal_text,
+            placeholder="e.g. Finished my first module of the MSc - 72%, and the project I built for it...",
+            width="100%",
+            resize="vertical",
+        ),
+        record_button("personal"),
+        rx.upload(
+            rx.vstack(
+                rx.icon("image", size=24),
+                rx.text("Add photos (up to 5) - drop them here or click to browse"),
+                rx.foreach(rx.selected_files("personal_upload"), lambda f: rx.text(f, size="1", class_name="hud-muted")),
+            ),
+            id="personal_upload",
+            accept={
+                "image/png": [".png"],
+                "image/jpeg": [".jpg", ".jpeg"],
+                "image/webp": [".webp"],
+            },
+            max_files=5,
+            multiple=True,
+            border="1px dashed var(--border-strong)",
+            border_radius="var(--radius)",
+            padding="1.5rem",
+            width="100%",
+        ),
+        rx.button(
+            "Save update",
+            on_click=DashboardState.save_personal_update(rx.upload_files(upload_id="personal_upload")),
+            **PRIMARY_CTA,
+        ),
+        rx.cond(
+            DashboardState.personal_updates.length() > 0,
+            rx.vstack(rx.foreach(DashboardState.personal_updates, _personal_update_card), spacing="2", width="100%"),
+            rx.text(
+                "Nothing saved yet - until there is, planning won't write a personal post.",
+                size="2",
+                class_name="hud-muted",
+            ),
+        ),
+        rx.cond(
+            DashboardState.personal_updates_used.length() > 0,
+            rx.vstack(
+                rx.text("Recently used", size="1", weight="medium", class_name="hud-muted"),
+                rx.foreach(DashboardState.personal_updates_used, _personal_update_card),
+                spacing="2",
+                width="100%",
+            ),
+            rx.fragment(),
+        ),
+        spacing="3",
+        width="100%",
+    )
+
+
 def _prepare_week_box() -> rx.Component:
     """One click from nothing to a reviewable week: drafts every day the weekly plan
     asks for, with visuals, straight into Review."""
     return rx.vstack(
         rx.heading("Next week", size="5"),
         rx.text(
-            "Drafts next week from your weekly plan, with visuals, ready in Posts > Review. "
+            "Drafts next week from your weekly plan, with visuals, ready in Posts > Review, using the "
+            "best research topics available. The personal post is written from your Personal updates "
+            "below - with none saved, no personal post is made up and the week is kept to 3 posts. "
             "Nothing goes out until you accept it and post it yourself.",
             size="2",
             class_name="hud-muted",
@@ -160,6 +282,7 @@ def home_page() -> rx.Component:
             rx.vstack(
                 _stats_panel(),
                 _prepare_week_box(),
+                _personal_updates_box(),
                 _upload_box(),
                 spacing="0",
                 gap="2.5rem",

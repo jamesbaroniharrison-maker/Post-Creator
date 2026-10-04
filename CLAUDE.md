@@ -14,6 +14,7 @@ full reference.
 - Drafting calls default to self-hosted Ollama (spec §5 has the reasoning); switchable to Gemini via `DRAFT_LLM_PROVIDER=gemini` in `.env`, but only once you've confirmed that's actually covered by what you pay for — Ollama is the safe default (free, local, no surprise billing). Research and photo-captioning calls can use a free-tier API (Gemini/Tavily) regardless, since nothing sensitive passes through those two specifically
 - The privacy/PII scrub call (for raw personal notes with no research backing) always stays on Ollama, regardless of `DRAFT_LLM_PROVIDER`
 - Nothing ever publishes to LinkedIn without an explicit human approval click, at every build level, no exceptions
+- Never draft a personal post without real personal material from James: a Personal update (Home), his own note on that day, or an upload/recording. No stock prompts, no holiday filler, no "the bank ran out so write something personal". A made-up personal story is the most damaging thing this system could post. With no personal material, a planned week is capped at 3 posts (`planning.NO_PERSONAL_WEEKLY_CAP`)
 - Localhost only — no network/cloud hosting; this runs on your own machine
 
 ## Build order
@@ -1549,3 +1550,44 @@ Before any git push, run /brain-sync to keep PROJECT_BRAIN.md current.
   filled it correctly ("Two pilot spots for this quarter." + scope-call button). No new
   templates are planned for now (a story single, a screenshot frame and a weekly recap
   carousel were identified as gaps and deliberately deferred).
+
+## No made-up personal posts, best-topic weeks, Personal updates with photos (4 Oct 2026)
+
+Request: when nothing has been accepted or planned, "Prepare next week" (and the Saturday
+auto-prepare) should follow the weekly plan with the best options available; with no
+personal input, stick to 3 posts; never force a personal post with no information (hard
+constraint); and a place to save personal milestones/updates, with pictures, for that
+week's personal post.
+
+- **Removed every source of invented personal posts**: `planning.prepare_week` used a
+  random `PROMPT_POOL` prompt for personal days and turned a holiday on a "no post" day
+  into a personal post; `DashboardState.fill_week` fell back to a random personal prompt
+  when the topic bank ran dry. All three are gone, and the rule is now in Hard rules above.
+  `PROMPT_POOL` is only used by the reminder email (which asks you, it doesn't write).
+- **`prepare_week` now**: personal days are written only from unused `PersonalUpdate`
+  rows (up to 3 oldest, folded into one post: your text plus a caption per photo, first
+  photo as `source_photo` so the photo template is used), then marked used with the post
+  id. A personal note you wrote on that day also counts as personal material. Old
+  "Auto-planned ..." / holiday notes don't (`is_real_personal_note`). No material ->
+  personal day skipped and the week capped at `NO_PERSONAL_WEEKLY_CAP` = 3 posts,
+  counting notes already in that week. Commentary days take the best unused finding
+  (high tier, newest; calendar-linked rows left for their occasion), borrowing from the
+  other category if one is empty. A holiday only adds a "mention it if it fits" line to a
+  personal post that has real material. Days already gone are skipped. If the personal
+  draft fails, its note is removed and the updates stay unused for next time.
+- **`fill_week`** tops up to 4 only when the week already has a personal post, else 3,
+  and stops with a message when the bank runs out.
+- **Home > Personal updates**: text (typed or dictated - new "personal" recording
+  target) plus up to 5 photos. Saved instantly; a background step copies each photo into
+  `assets/uploads` (for the post image) and captions it with Gemini. Waiting updates show
+  with thumbnails and an x to delete (which also deletes their photo files); the last 3
+  used are listed. New table `personalupdate`, migration `c41d8e2a7f15`.
+- **Verified**: 8 planning scenarios against a copy of the real DB with drafting mocked
+  (no material -> 3 posts and no personal call; 5-day template -> capped at 3; update with
+  photo -> one personal post with text, caption and photo, marked used, not reused on a
+  re-run; your own note counts; an old auto note doesn't; Christmas week makes no personal
+  post; empty market bank borrows ai findings). Live UI test in a real browser: logged in,
+  saved an update with a photo, card + thumbnail + "waiting" badge shown, caption and
+  stored copy written, deleted via the x. Test data and files removed afterwards.
+- Not changed: drafts still go to Review for you to accept - "accept the best options"
+  was read as choosing the best topics, not auto-approving posts (Hard rules).
