@@ -42,7 +42,10 @@ from linkedin_content_engine.planning import (
     prepare_week,
     unused_personal_updates,
 )
+from linkedin_content_engine.angles import angle_label
 from linkedin_content_engine.exports import build_bundle
+from linkedin_content_engine.opinions import draft_from_take, offer_new_prompts, open_prompts, skip_prompt
+from linkedin_content_engine.voiding import void_post, voided_tally
 from linkedin_content_engine.visuals_engine.attach import make_visual_for_post
 from linkedin_content_engine.visuals_engine.spec import CATALOG
 from linkedin_content_engine.models import (
@@ -80,7 +83,7 @@ REJECTION_REASONS = ["not relevant", "wrong tone", "already covered"]
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 DISPLAY_DAYS = [*WEEKDAYS, "Unscheduled"]
 POST_TYPES = ["ai_commentary", "market_commentary", "personal_reflection"]
-REVIEW_GROUPS = [*POST_TYPES, "other"]  # Review is grouped by post type, in this order
+REVIEW_GROUPS = [*POST_TYPES, "opinion", "other"]  # Review is grouped by post type, in this order
 DAY_TEMPLATE_OPTIONS = [*POST_TYPES, "no_post"]
 _WEEKDAY_FIELDS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 TOPIC_CATEGORIES = ["ai", "market"]
@@ -166,6 +169,10 @@ class PostView(pydantic.BaseModel):
     media_pairing_label: str = ""
     media_note: str = ""
     voice_delta_label: str = ""
+    topic_angle_label: str = ""  # e.g. "Policy & Regulation" (angles.py)
+    opening_label: str = ""  # e.g. "Opening 7/10"
+    opening_note: str = ""
+    opening_strength: str = ""  # strong / ok / weak - colours the badge
     redraft_note: str = ""  # what to change on Redraft - typed or dictated, kept across reloads
     # Brand visual (visuals_engine/): paths relative to the upload dir, for rx.get_upload_url
     visual_files: list[str] = []
@@ -311,6 +318,18 @@ class VoiceRegisterHealthView(pydantic.BaseModel):
     status_text: str = ""
 
 
+class OpinionPromptView(pydantic.BaseModel):
+    """One finding offered on Home > Your take."""
+
+    id: int
+    key: str  # str(id) - the page indexes opinion_answers with it
+    title: str
+    summary: str
+    url: str = ""
+    angle_label: str = ""
+    answer: str = ""  # a saved answer (e.g. after a voided opinion post)
+
+
 class PersonalUpdateView(pydantic.BaseModel):
     """One saved Personal update on Home."""
 
@@ -445,6 +464,12 @@ def _row_to_view(p: Post) -> PostView:
         media_pairing_label=humanize(p.media_pairing or ""),
         media_note=p.media_note or "",
         voice_delta_label=_voice_delta_label(p.voice_delta),
+        topic_angle_label=angle_label(p.topic_angle),
+        opening_label=f"Opening {p.opening_score}/10" if p.opening_score else "",
+        opening_note=p.opening_note or "",
+        opening_strength=("strong" if (p.opening_score or 0) >= 8 else "ok" if (p.opening_score or 0) >= 5 else "weak")
+        if p.opening_score
+        else "",
         visual_files=[_upload_rel(f) for f in _json_list(p.visual_files) if pathlib.Path(f).exists()],
         visual_pdf=_upload_rel(p.visual_pdf) if p.visual_pdf and pathlib.Path(p.visual_pdf).exists() else "",
         visual_template=p.visual_template or "",
@@ -484,6 +509,16 @@ class DashboardState(rx.State):
     stats_by_structural_format: list[StatBreakdownItem] = []
     stats_by_media_pairing: list[StatBreakdownItem] = []
     stats_by_week: list[StatBreakdownItem] = []
+    stats_by_angle: list[StatBreakdownItem] = []  # AI/market/opinion posts by angle
+    stats_by_opening: list[StatBreakdownItem] = []  # strong / ok / weak / not scored
+    stats_opening_avg: str = "-"
+    stats_voided: str = "0"  # tally only - voided posts are gone from everything else
+    stats_voided_detail: str = ""
+
+    # Home > Your take: findings offered for James's own opinion (opinions.py)
+    opinion_prompts: list[OpinionPromptView] = []
+    opinion_answers: dict[str, str] = {}  # prompt id (as str) -> in-progress answer
+    opinion_busy_id: int = 0
 
     # Accepted page: status filter + 4-week look-ahead selector (request: "a filter for
     # looking at accepted and looking at published ones" / "select through the weeks
@@ -609,6 +644,7 @@ class DashboardState(rx.State):
             self._reload_job_status()
             self._reload_voice()
             self._reload_personal_updates()
+            self._reload_opinions()
             if not self.link_target_date:
                 self.link_target_date = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
         except Exception as exc:  # noqa: BLE001
@@ -1182,6 +1218,23 @@ class DashboardState(rx.State):
         self.stats_by_length_bucket = _breakdown(_count_by("length_bucket"))
         self.stats_by_structural_format = _breakdown(_count_by("structural_format"))
         self.stats_by_media_pairing = _breakdown(_count_by("media_pairing"))
+        self.stats_by_angle = _breakdown(
+            {angle_label(k) or k: v for k, v in _count_by("topic_angle").items()}
+        )
+        scored = [p.opening_score for p in all_posts if p.opening_score]
+        self.stats_opening_avg = f"{sum(scored) / len(scored):.1f}/10" if scored else "-"
+        self.stats_by_opening = _breakdown(
+            {
+                "Strong (8-10)": sum(1 for x in scored if x >= 8),
+                "OK (5-7)": sum(1 for x in scored if 5 <= x < 8),
+                "Weak (1-4)": sum(1 for x in scored if x < 5),
+                "Not scored yet": len(all_posts) - len(scored),
+            },
+            sort_by_count=False,
+        )
+        tally = voided_tally()
+        self.stats_voided = str(tally["total"])
+        self.stats_voided_detail = f"{tally['voided']} voided in Review, {tally['test']} test posts removed"
 
         cutoff = datetime.now(timezone.utc) - timedelta(weeks=HISTORY_WEEKS_LIMIT)
         week_counts: dict[str, int] = {}
@@ -1196,7 +1249,7 @@ class DashboardState(rx.State):
         """Review's groups: one per post type, plus "other" for anything unexpected."""
         buckets: dict[str, list[PostView]] = {t: [] for t in REVIEW_GROUPS}
         for p in self.posts:
-            buckets[p.post_type if p.post_type in POST_TYPES else "other"].append(p)
+            buckets[p.post_type if p.post_type in REVIEW_GROUPS else "other"].append(p)
         return buckets
 
     def _find_post(self, post_id: int) -> PostView | None:
@@ -1404,6 +1457,42 @@ class DashboardState(rx.State):
         self._rebuild_bundles()
         self._reload_posts()
         self._reload_accepted()
+        self._reload_stats()
+        # Step two of two-step generation: the design is only made once the words are
+        # accepted (unless one was already made by hand in Review).
+        return DashboardState.make_visual_after_accept(post_id)
+
+    @rx.event(background=True)
+    async def make_visual_after_accept(self, post_id: int):
+        with rx.session(url=config.db_url) as session:
+            post = session.get(Post, post_id)
+            needs_visual = post is not None and not _json_list(post.visual_files)
+        if not needs_visual:
+            return
+        async with self:
+            self.status_message = "Accepted - making its design in the background..."
+        try:
+            make_visual_for_post(post_id)
+            build_bundle(post_id)
+        except Exception:  # noqa: BLE001 - the post is accepted either way
+            pass
+        async with self:
+            self.status_message = "Accepted, and its design is ready on the Accepted tab."
+            self._reload_accepted()
+            self._refresh_bundles()
+
+    @rx.event
+    def void(self, post_id: int):
+        """Removes the post as if it never existed (voiding.py) - only a tally remains."""
+        if void_post(post_id):
+            self.status_message = "Voided - gone from Review and from every statistic."
+        self._reload_posts()
+        self._reload_accepted()
+        self._reload_rejected()
+        self._reload_bank()
+        self._reload_planned_notes()
+        self._reload_personal_updates()
+        self._reload_opinions()
         self._reload_stats()
 
     @rx.event
@@ -1793,6 +1882,64 @@ class DashboardState(rx.State):
             self._reload_posts()
             self._reload_bank()
             self._reload_planned_notes()
+            self._reload_stats()
+
+    # ---- Home > Your take: findings offered for your own opinion (opinions.py) ----
+
+    def _reload_opinions(self):
+        rows = open_prompts()
+        self.opinion_prompts = [
+            OpinionPromptView(
+                id=prompt.id,
+                key=str(prompt.id),
+                title=bank.source_title,
+                summary=bank.summary,
+                url=bank.source_url or "",
+                angle_label=angle_label(bank.topic_angle),
+                answer=prompt.answer_text or "",
+            )
+            for prompt, bank in rows
+        ]
+        self.opinion_answers = {
+            **{str(v.id): v.answer for v in self.opinion_prompts},
+            **{k: v for k, v in self.opinion_answers.items() if v},
+        }
+
+    @rx.event
+    def set_opinion_answer(self, prompt_id: int, value: str):
+        self.opinion_answers = {**self.opinion_answers, str(prompt_id): value}
+
+    @rx.event
+    def skip_opinion(self, prompt_id: int):
+        skip_prompt(prompt_id)
+        self._reload_opinions()
+
+    @rx.event
+    def new_opinion_topics(self):
+        added = offer_new_prompts(force=True)
+        self._reload_opinions()
+        self.status_message = f"{added} new topic(s) to give your take on." if added else "No fresh high-tier findings to offer right now - run research first."
+
+    @rx.event(background=True)
+    async def submit_opinion(self, prompt_id: int):
+        async with self:
+            answer = self.opinion_answers.get(str(prompt_id), "").strip()
+            if not answer:
+                self.status_message = "Write or dictate your take first."
+                return
+            self.opinion_busy_id = prompt_id
+            self.status_message = "Drafting your take into a post..."
+        try:
+            draft_from_take(prompt_id, answer)
+            message = "Drafted - it's in Review under Opinion."
+        except Exception as exc:  # noqa: BLE001
+            message = f"Couldn't draft it ({exc}). Your answer is saved - try again."
+        async with self:
+            self.opinion_busy_id = 0
+            self.status_message = message
+            self.opinion_answers = {k: v for k, v in self.opinion_answers.items() if k != str(prompt_id)}
+            self._reload_opinions()
+            self._reload_posts()
             self._reload_stats()
 
     # ---- Home > Personal updates: milestones / news (+ photos) for personal posts ----
@@ -2261,6 +2408,12 @@ class DashboardState(rx.State):
                 self.upload_text = f"{self.upload_text.rstrip()} {text}".strip()
             elif target == "personal":
                 self.personal_text = f"{self.personal_text.rstrip()} {text}".strip()
+            elif target == "opinion":
+                key = str(post_id)
+                self.opinion_answers = {
+                    **self.opinion_answers,
+                    key: f"{self.opinion_answers.get(key, '').rstrip()} {text}".strip(),
+                }
             elif target == "redraft":
                 post = self._find_post(post_id)
                 if post:

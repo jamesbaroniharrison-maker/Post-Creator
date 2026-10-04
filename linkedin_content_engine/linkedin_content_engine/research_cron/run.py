@@ -63,3 +63,12 @@ if __name__ == "__main__":
         logging.info("AUTO-PREPARE: %s", prepare_result)
     except Exception:
         logging.exception("AUTO-PREPARE FAILED")
+
+    # Every few days: put 2-3 strong fresh findings on Home > Your take for James's own
+    # opinion (opinions.py decides whether a new round is due). Caught separately.
+    try:
+        from linkedin_content_engine.opinions import offer_new_prompts
+
+        logging.info("YOUR TAKE: %s new prompt(s)", offer_new_prompts())
+    except Exception:
+        logging.exception("YOUR TAKE FAILED")

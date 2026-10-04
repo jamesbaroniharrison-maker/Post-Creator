@@ -36,6 +36,7 @@ class TopicBank(rx.Model, table=True):
     # Set when this finding (or a banked occasion angle) is tied to a calendar occasion.
     calendar_event_id: int | None = sqlmodel.Field(default=None, foreign_key="calendarevent.id")
     embedding: str | None = None  # JSON vector, cached the first time calendar matching needs it
+    topic_angle: str | None = None  # angles.py - e.g. "policy_regulation"
 
 
 class Post(rx.Model, table=True):
@@ -90,6 +91,12 @@ class Post(rx.Model, table=True):
     visual_pdf: str | None = None  # carousels only - LinkedIn takes them as a PDF document post
     visual_note: str | None = None  # a problem worth your eye (text didn't fit, fill failed)
     source_photo: str | None = None  # your own uploaded photo, used by the photo template
+    # What the post is about within its type (angles.py), for Review and Statistics.
+    topic_angle: str | None = None
+    # How well the first line makes someone stop and read on (openings.py): 1-10 plus
+    # a one-line reason. Scored after drafting, after the opening-sharpening pass.
+    opening_score: int | None = None
+    opening_note: str | None = None
 
 
 class VoiceSample(rx.Model, table=True):
@@ -166,6 +173,30 @@ class PlannedNote(rx.Model, table=True):
     # hand - lets the drafting call cite the real source instead of treating the
     # summary as a from-scratch personal note.
     source_bank_id: int | None = sqlmodel.Field(foreign_key="topicbank.id", default=None)
+
+
+class VoidedPost(rx.Model, table=True):
+    """A tally line for a post that was voided (Review > Void) or made in testing and
+    deleted. The post itself is gone - it appears in no list or statistic - and only
+    this count remains, so there's a check on how many posts have been made in all."""
+
+    post_type: str
+    kind: str = "voided"  # voided / test
+    drafted_at: datetime | None = None
+    voided_at: datetime
+
+
+class OpinionPrompt(rx.Model, table=True):
+    """A research finding offered on Home > Your take for James's own opinion. His
+    answer (real material from him, so the no-made-up-posts rule is met) is drafted
+    into an "opinion" post grounded in the finding."""
+
+    bank_id: int
+    created_at: datetime
+    answer_text: str = ""
+    answered_at: datetime | None = None
+    skipped_at: datetime | None = None
+    post_id: int | None = None
 
 
 class PersonalUpdate(rx.Model, table=True):

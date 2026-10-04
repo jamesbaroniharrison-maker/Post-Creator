@@ -13,7 +13,7 @@ from linkedin_content_engine.dashboard.components import (
     type_select,
 )
 from linkedin_content_engine.dashboard.recorder import record_button
-from linkedin_content_engine.dashboard.state import POST_TYPES, DashboardState, PersonalUpdateView
+from linkedin_content_engine.dashboard.state import POST_TYPES, DashboardState, PersonalUpdateView, OpinionPromptView
 
 
 def _stats_panel() -> rx.Component:
@@ -110,6 +110,81 @@ def _upload_box() -> rx.Component:
             on_click=DashboardState.submit_weekly_input(rx.upload_files(upload_id="weekly_upload")),
             loading=DashboardState.is_busy,
             **PRIMARY_CTA,
+        ),
+        spacing="3",
+        width="100%",
+    )
+
+
+def _opinion_card(item: OpinionPromptView) -> rx.Component:
+    return rx.card(
+        rx.vstack(
+            rx.hstack(
+                rx.cond(item.angle_label != "", rx.badge(item.angle_label, variant="soft", color_scheme="bronze", size="1")),
+                rx.spacer(),
+                rx.button(
+                    "Skip",
+                    size="1",
+                    variant="ghost",
+                    color_scheme="gray",
+                    on_click=DashboardState.skip_opinion(item.id),
+                ),
+                width="100%",
+                align="center",
+            ),
+            rx.cond(
+                item.url != "",
+                rx.link(item.title, href=item.url, is_external=True, size="2", weight="medium"),
+                rx.text(item.title, size="2", weight="medium"),
+            ),
+            rx.text(item.summary, size="2", class_name="hud-muted"),
+            rx.text_area(
+                value=DashboardState.opinion_answers[item.key],
+                on_change=lambda v: DashboardState.set_opinion_answer(item.id, v),
+                placeholder="What do you actually think? Agree, disagree, what it means for small businesses, what people are missing...",
+                width="100%",
+                min_height="90px",
+                resize="vertical",
+            ),
+            rx.hstack(
+                record_button("opinion", item.id),
+                rx.button(
+                    "Turn my take into a post",
+                    on_click=DashboardState.submit_opinion(item.id),
+                    loading=DashboardState.opinion_busy_id == item.id,
+                    **PRIMARY_CTA,
+                ),
+                spacing="2",
+                wrap="wrap",
+            ),
+            spacing="2",
+            width="100%",
+        ),
+        width="100%",
+    )
+
+
+def _your_take_box() -> rx.Component:
+    """A few research findings for your own opinion, refreshed every few days by the
+    daily job (opinions.py). Each answer becomes an Opinion post in Review."""
+    return rx.vstack(
+        rx.hstack(
+            rx.heading("Your take", size="5"),
+            rx.spacer(),
+            rx.button("Give me new topics", size="1", on_click=DashboardState.new_opinion_topics, **SECONDARY_CTA),
+            width="100%",
+            align="center",
+        ),
+        rx.text(
+            "Every few days, a few of the strongest new stories land here. Say what you think - typed or "
+            "recorded, as rough as you like - and it's written up as an Opinion post in your voice.",
+            size="2",
+            class_name="hud-muted",
+        ),
+        rx.cond(
+            DashboardState.opinion_prompts.length() > 0,
+            rx.vstack(rx.foreach(DashboardState.opinion_prompts, _opinion_card), spacing="2", width="100%"),
+            rx.text("Nothing waiting - new topics arrive every few days, or press Give me new topics.", size="2", class_name="hud-muted"),
         ),
         spacing="3",
         width="100%",
@@ -242,8 +317,9 @@ def _prepare_week_box() -> rx.Component:
     return rx.vstack(
         rx.heading("Next week", size="5"),
         rx.text(
-            "Drafts next week from your weekly plan, with visuals, ready in Posts > Review, using the "
-            "best research topics available. The personal post is written from your Personal updates "
+            "Drafts next week from your weekly plan, ready in Posts > Review, using the "
+            "best research topics available - designs are made once you accept. The personal post is "
+            "written from your Personal updates "
             "below - with none saved, no personal post is made up and the week is kept to 3 posts. "
             "Nothing goes out until you accept it and post it yourself.",
             size="2",
@@ -282,6 +358,7 @@ def home_page() -> rx.Component:
             rx.vstack(
                 _stats_panel(),
                 _prepare_week_box(),
+                _your_take_box(),
                 _personal_updates_box(),
                 _upload_box(),
                 spacing="0",

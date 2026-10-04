@@ -11,6 +11,7 @@ import reflex as rx
 import sqlmodel
 
 from rxconfig import config
+from linkedin_content_engine.angles import classify_angle
 from linkedin_content_engine.models import ForcedTopic, JobRun, TopicBank
 from linkedin_content_engine.research_cron.dedup import is_duplicate
 from linkedin_content_engine.research_cron.discovery import discover
@@ -105,6 +106,7 @@ def run_daily_research(force: bool = False) -> dict:
                     tier=result.tier,
                     category=result.category,
                     used=False,
+                    topic_angle=classify_angle(f"{item.title} {result.summary}", result.category),
                 )
                 session.add(row)
                 stored_by_tier[result.tier] = stored_by_tier.get(result.tier, 0) + 1

@@ -1591,3 +1591,59 @@ week's personal post.
   stored copy written, deleted via the x. Test data and files removed afterwards.
 - Not changed: drafts still go to Review for you to accept - "accept the best options"
   was read as choosing the best topics, not auto-approving posts (Hard rules).
+
+## Review by type, angles, Your take, Void, two-step designs, sharper openings (4 Oct 2026)
+
+Requests (from the phone): Review grouped by kind of post, not by suggested day (nearly
+every draft landed under Tuesday); diversify "AI commentary" with sub-angles and a "your
+opinion" input every few days (James chose both); a Void option that wipes a post from
+stats as if it never existed with only a small tally kept (test posts that get deleted
+count too); posts first, designs only after the words are approved; and openings with
+some life in them, without sounding AI.
+
+- **Review** groups by post type (`REVIEW_GROUPS`: AI, market, personal, opinion, other).
+- **Angles** (`angles.py`): keyword classifier, no model call. Tools & Products, Business &
+  Adoption, Policy & Regulation, Research & Technical, Jobs & Skills, Markets & Money.
+  `TopicBank.topic_angle` set by the research cron and calendar engine (all 1,158
+  existing rows backfilled by migration `d6a2f9b31c58`), `Post.topic_angle` set at draft
+  time from its bank row (else from the text). Planning prefers an angle the week hasn't
+  had yet. Shown on Review cards and in Statistics.
+- **Your take** (`opinions.py`, `OpinionPrompt`): every 3 days (daily cron, or "Give me
+  new topics") up to 3 fresh high-tier findings, one per angle where possible. His
+  answer (typed or dictated - recorder target "opinion") is drafted as post_type
+  "opinion", grounded in the finding as research. Not a weekly-plan option: it only
+  exists when he's given a take. Skippable.
+- **Void** (`voiding.py`, `VoidedPost`): deletes the post row, its visual folder and
+  ready-to-post folder (post ids are reused by SQLite - no AUTOINCREMENT - so stale files
+  would attach to a future post), puts its topic back in the bank, removes the auto
+  Plan ahead note for it, releases Personal updates, re-offers a Your take with the
+  answer kept. One VoidedPost row is the only trace; Statistics shows "Voided: n" under
+  everything else. `kind="test"` for test posts removed after testing. The tally starts
+  4 Oct 2026 - deletions before that can't be counted (ids are reused).
+- **Two-step generation**: `pipeline.generate_draft_with_research` no longer makes the
+  visual. `DashboardState.accept` hands off to `make_visual_after_accept` (background),
+  which makes it (respecting the rotation's text-only choice) and builds the bundle.
+  "Make a visual" in Review still works for a preview.
+- **Openings** (`drafting_engine/openings.py`): after best-of-N, `sharpen_opening` asks
+  for 4 alternative first lines built only from the post (told what the next sentence
+  is, so it doesn't repeat it), throws out any with a digit, spelled-out number or
+  capitalised name not in the post or topic, or a known AI tell / question / em dash,
+  scores all of them plus the original in one call, and swaps only if one beats the
+  original by 2+ points and the voice Delta doesn't get worse by more than 0.2.
+  `Post.opening_score` / `opening_note` shown on cards; Statistics shows average and
+  strong/ok/weak. `SHARPEN_OPENINGS=0` turns it off. Cost: 2 extra model calls a post.
+- **Evaluation run on every post that exists** (4 drafts + James's 3 real LinkedIn posts
+  as a benchmark): drafts scored 3, 3, 6, 6 ("clear but flat, no tension"); his own posts
+  3-5 (announcement-style openers). Sharpening previews: 3 -> 8 and 5 -> 8, both using
+  facts from the posts. A real end-to-end draft: opening 6 -> 8, no visual at draft time,
+  then voided as a test (tally: 1 test).
+- **Real bug found by the evaluation**: the money-figure redaction (a privacy measure for
+  personal notes) ran on research-backed posts too, turning "$300 million" into "a
+  significant amount million" in a live draft. Now only applied when there are no
+  research findings, and the pattern swallows million/billion/bn/m/k so a redacted
+  personal figure can't leave a stray word.
+- Tested on a DB copy (mocked drafting): Void undoes everything and counts once; Your
+  take offers 3 different angles, waits 3 days, drafts from the take with the finding as
+  research, re-offers after a void; planning gives each AI day a different angle. Live
+  phone-sized browser check of Home (Your take), Review (badges, Void dialog) and
+  Statistics.

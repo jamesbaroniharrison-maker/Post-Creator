@@ -13,11 +13,14 @@ import reflex as rx
 import sqlmodel
 
 from rxconfig import config
-from linkedin_content_engine.drafting_engine.draft import best_of_n_draft_post
+from linkedin_content_engine.angles import classify_angle
+from linkedin_content_engine.drafting_engine.draft import _redact_money, _strip_em_dash, best_of_n_draft_post
+from linkedin_content_engine.drafting_engine.openings import sharpen_opening
 from linkedin_content_engine.drafting_engine.research import ResearchResult, research_topic
 from linkedin_content_engine.drafting_engine.rotation import assign_rotation
-from linkedin_content_engine.models import Post, VoiceProfile
-from linkedin_content_engine.visuals_engine.attach import make_visual_for_post
+from linkedin_content_engine.models import Post, TopicBank, VoiceProfile
+from linkedin_content_engine.voice_engine.ingestion import get_weighted_samples_by_register
+from linkedin_content_engine.voice_engine.similarity import primary_voice_delta
 
 
 def load_voice_profile() -> dict:
@@ -54,6 +57,20 @@ def generate_draft_with_research(
     # recalculated here against a possibly-different corpus snapshot.
     draft, voice_delta = best_of_n_draft_post(topic, voice_profile, research, rotation)
 
+    # Sharpen the first line (openings.py): a better opening only replaces the old one
+    # when it scores clearly higher and doesn't pull the post away from your voice.
+    opening_score, opening_note = None, ""
+    if os.environ.get("SHARPEN_OPENINGS", "1") != "0":
+        new_text, opening_score, opening_note = sharpen_opening(draft.text, topic)
+        if new_text != draft.text:
+            new_text = _strip_em_dash(new_text if research.findings else _redact_money(new_text))
+            new_delta = primary_voice_delta(new_text, get_weighted_samples_by_register())
+            if voice_delta is not None and new_delta is not None and new_delta > voice_delta + 0.2:
+                opening_note = "Kept the original opening - the sharper one didn't sound like you."
+                opening_score = None
+            else:
+                draft.text, voice_delta = new_text, new_delta if new_delta is not None else voice_delta
+
     post = Post(
         post_type=post_type,
         status="drafted",
@@ -73,19 +90,25 @@ def generate_draft_with_research(
         media_note=draft.media_note,
         voice_delta=voice_delta,
         source_photo=source_photo,
+        opening_score=opening_score,
+        opening_note=opening_note or None,
     )
+    category = {"ai_commentary": "ai", "market_commentary": "market", "opinion": "ai"}.get(post_type)
+    if category:
+        with rx.session(url=config.db_url) as session:
+            bank = session.get(TopicBank, source_bank_id) if source_bank_id else None
+        post.topic_angle = (bank.topic_angle if bank and bank.topic_angle else None) or classify_angle(
+            f"{topic} {draft.text}", bank.category if bank else category
+        )
+
     with rx.session(url=config.db_url) as session:
         session.add(post)
         session.commit()
         session.refresh(post)
 
-    # The brand visual (visuals_engine/) - made right away so it's waiting in Review
-    # next to the text. Never allowed to cost the draft: a failure only leaves a note.
-    if os.environ.get("AUTO_VISUALS", "1") != "0":
-        try:
-            post = make_visual_for_post(post.id) or post
-        except Exception:  # noqa: BLE001
-            pass
+    # Two-step generation (request: "post first then designs after, if I don't like
+    # the post I don't want to waste on the designs"): no visual here. It's made when
+    # the post is accepted (DashboardState.accept), or on demand with "Make a visual".
     return post
 
 

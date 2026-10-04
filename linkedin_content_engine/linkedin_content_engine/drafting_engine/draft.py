@@ -53,7 +53,13 @@ dotenv.load_dotenv()
 # exact monetary figure tied to a real person is unambiguous and safe to catch with a
 # regex (unlike names, which need judgement) - runs unconditionally as a second,
 # deterministic layer on top of the LLM scrub below, never relied on alone.
-_MONEY_RE = re.compile(r"[£$€]\s?\d[\d,]*(\.\d{1,2})?|\b\d[\d,]{2,}\s?(pounds|GBP|dollars|USD)\b", re.IGNORECASE)
+# The scale word ("million", "bn", "k") is part of the match, so a redacted figure never
+# leaves "a significant amount million" / "amountk" behind (seen in real drafts).
+_MONEY_RE = re.compile(
+    r"[£$€]\s?\d[\d,]*(\.\d+)?(\s?(million|billion|thousand|bn|m|k)\b)?"
+    r"|\b\d[\d,]*(\.\d+)?\s?(million|billion|thousand)?\s?(pounds|GBP|dollars|USD)\b",
+    re.IGNORECASE,
+)
 
 # Em dash is on the framework's banned-patterns list. Same reasoning as the money
 # regex: trivially and unambiguously catchable, so don't leave it to the model alone.
@@ -737,8 +743,14 @@ def draft_post(
         media_pairing=media_pairing,
     )
 
+    # Money redaction is a privacy measure for your own raw notes (an exact figure tied
+    # to a private person). A research-backed post's figures are public facts from the
+    # source, so they stay - redacting them produced "a significant amount million".
+    def _clean(text: str) -> str:
+        return _strip_em_dash(text if research.findings else _redact_money(text))
+
     draft = _chat_and_parse_draft(system_prompt, f"Topic: {topic}")
-    draft.text = _strip_em_dash(_redact_money(draft.text))
+    draft.text = _clean(draft.text)
 
     passes, problem = _run_audit_call(draft.text, topic)
     if not passes:
@@ -750,7 +762,7 @@ def draft_post(
         )
         try:
             draft = _chat_and_parse_draft(system_prompt, retry_content)
-            draft.text = _strip_em_dash(_redact_money(draft.text))
+            draft.text = _clean(draft.text)
             passes, _ = _run_audit_call(draft.text, topic)
         except Exception:
             passes = True  # keep the retry attempt rather than lose it entirely

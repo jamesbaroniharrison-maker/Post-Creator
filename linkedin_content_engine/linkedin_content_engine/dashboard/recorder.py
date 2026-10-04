@@ -55,7 +55,8 @@ _STOP_JS = f"{_RECORDER_JS}.stop()"
 
 def record_button(target: str, post_id=0) -> rx.Component:
     """Mic button for one text box. Click to start, click again to stop and transcribe.
-    `target` is "weekly", "personal" or "redraft"; `post_id` picks the Review card for "redraft"."""
+    `target` is "weekly", "personal", "opinion" or "redraft"; `post_id` picks the Review card for
+    "redraft" and the Your take topic for "opinion"."""
     is_recording = (DashboardState.recording_target == target) & (DashboardState.recording_post_id == post_id)
     is_transcribing = (DashboardState.transcribing_target == target) & (
         DashboardState.transcribing_post_id == post_id

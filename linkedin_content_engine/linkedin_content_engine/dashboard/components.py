@@ -319,11 +319,14 @@ def visual_panel(post: PostView, show_folder: bool = False) -> rx.Component:
 
 
 def review_post_card(post: PostView) -> rx.Component:
-    """Review page: Accept / Redraft / Reject."""
     return rx.card(
         rx.vstack(
             rx.hstack(
                 rx.badge(post.post_type_label, variant="outline"),
+                rx.cond(
+                    post.topic_angle_label != "",
+                    rx.badge(post.topic_angle_label, variant="soft", color_scheme="bronze"),
+                ),
                 status_pill(post.status, post.status_label),
                 rx.spacer(),
                 rx.select(
@@ -334,6 +337,21 @@ def review_post_card(post: PostView) -> rx.Component:
                 ),
                 width="100%",
                 align="center",
+                wrap="wrap",
+            ),
+            rx.cond(
+                post.opening_label != "",
+                rx.hstack(
+                    rx.badge(
+                        post.opening_label,
+                        variant="soft",
+                        color_scheme=rx.match(post.opening_strength, ("strong", "green"), ("ok", "amber"), "red"),
+                    ),
+                    rx.text(post.opening_note, size="1", class_name="hud-muted"),
+                    spacing="2",
+                    align="center",
+                    wrap="wrap",
+                ),
             ),
             rx.cond(
                 post.funnel_stage != "",
@@ -356,6 +374,14 @@ def review_post_card(post: PostView) -> rx.Component:
                 rx.text(post.voice_delta_label, size="1", class_name="hud-muted"),
             ),
             post_editable_body(post),
+            rx.cond(
+                post.visual_files.length() == 0,
+                rx.text(
+                    "The design is made when you accept this post - or make one now to preview it.",
+                    size="1",
+                    class_name="hud-muted",
+                ),
+            ),
             visual_panel(post),
             rx.text("Redraft note (optional)", size="2", weight="medium", class_name="hud-muted"),
             rx.text_area(
@@ -376,8 +402,30 @@ def review_post_card(post: PostView) -> rx.Component:
                     **SECONDARY_CTA,
                 ),
                 rejection_menu(post.id),
+                rx.spacer(),
+                rx.alert_dialog.root(
+                    rx.alert_dialog.trigger(rx.button("Void", variant="ghost", color_scheme="gray", size="2")),
+                    rx.alert_dialog.content(
+                        rx.alert_dialog.title("Void this post?"),
+                        rx.alert_dialog.description(
+                            "It's deleted as if it never existed - gone from Review and every statistic. "
+                            "Its topic goes back into the bank. Only a voided count is kept.",
+                            size="2",
+                        ),
+                        rx.hstack(
+                            rx.alert_dialog.cancel(rx.button("Keep it", variant="soft", color_scheme="gray")),
+                            rx.alert_dialog.action(
+                                rx.button("Void", color_scheme="red", on_click=DashboardState.void(post.id))
+                            ),
+                            spacing="3",
+                            justify="end",
+                            margin_top="1rem",
+                        ),
+                    ),
+                ),
                 spacing="2",
                 wrap="wrap",
+                width="100%",
             ),
             spacing="3",
             width="100%",

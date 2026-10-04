@@ -1,5 +1,6 @@
-"""Prepare a week in one go: plan each day from the weekly template, draft it, and make
-its visual. Everything lands in Review - nothing is approved or posted for you.
+"""Prepare a week in one go: plan each day from the weekly template and draft it. The
+visual is made later, when you accept the post. Everything lands in Review - nothing is
+approved or posted for you.
 
 Used by the dashboard's "Prepare next week" / "Plan this week" buttons and by the
 Saturday run in the daily research job (when switched on in the weekly template).
@@ -102,12 +103,14 @@ def is_real_personal_note(note: PlannedNote) -> bool:
     return not any(text.startswith(f"{name}:") for name, _angle in HOLIDAYS.values())
 
 
-def _best_bank_row(session, category: str, claimed: set[int]) -> TopicBank | None:
+def _best_bank_row(session, category: str, claimed: set[int], used_angles: set[str] | None = None) -> TopicBank | None:
     """Best unused finding: high tier before mid, newest first. Calendar-linked rows
-    belong to their own occasion date, so they're left alone. Falls back to the other
-    category when this one has nothing left, rather than leaving the day empty."""
+    belong to their own occasion date, so they're left alone. Prefers an angle the week
+    hasn't had yet (angles.py), so a week isn't three takes on the same kind of story.
+    Falls back to the other category when this one has nothing left."""
+    used_angles = used_angles or set()
 
-    def best(cat: str | None) -> TopicBank | None:
+    def best(cat: str | None, fresh_angle: bool) -> TopicBank | None:
         query = sqlmodel.select(TopicBank).where(
             TopicBank.used == False,  # noqa: E712
             TopicBank.tier != "discard",
@@ -116,11 +119,18 @@ def _best_bank_row(session, category: str, claimed: set[int]) -> TopicBank | Non
         )
         if cat:
             query = query.where(TopicBank.category == cat)
+        if fresh_angle and used_angles:
+            query = query.where(
+                sqlmodel.or_(
+                    sqlmodel.col(TopicBank.topic_angle).is_(None),
+                    sqlmodel.col(TopicBank.topic_angle).not_in(used_angles),
+                )
+            )
         return session.exec(
             query.order_by(sqlmodel.col(TopicBank.tier).asc(), sqlmodel.col(TopicBank.date_found).desc())
         ).first()
 
-    return best(category) or best(None)
+    return best(category, True) or best(category, False) or best(None, True) or best(None, False)
 
 
 def prepare_week(monday: str) -> dict:
@@ -164,6 +174,7 @@ def prepare_week(monday: str) -> dict:
 
     counts = {k: 0 for k in ("planned", "personal", "skipped_no_post", "skipped_no_personal", "skipped_cap", "failed")}
     claimed: set[int] = set()
+    used_angles: set[str] = set()
     for d in dates:
         if d < today or d in already_noted:
             continue
@@ -215,7 +226,9 @@ def prepare_week(monday: str) -> dict:
 
         category = "ai" if post_type == "ai_commentary" else "market"
         with rx.session(url=config.db_url) as session:
-            bank_row = _best_bank_row(session, category, claimed)
+            bank_row = _best_bank_row(session, category, claimed, used_angles)
+            if bank_row and bank_row.topic_angle:
+                used_angles.add(bank_row.topic_angle)
             note = PlannedNote(
                 target_date=d,
                 note_text=bank_row.summary if bank_row else f"{AUTO_NOTE_PREFIX} {post_type.replace('_', ' ')} post.",

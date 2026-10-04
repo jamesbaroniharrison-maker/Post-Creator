@@ -17,6 +17,7 @@ from rxconfig import config
 from linkedin_content_engine.calendar_engine.discovery import discover_additional_events
 from linkedin_content_engine.calendar_engine.events_seed import seed_events_for_year
 from linkedin_content_engine.calendar_engine.matching import find_best_topic_bank_match
+from linkedin_content_engine.angles import classify_angle
 from linkedin_content_engine.models import CalendarEvent, JobRun, TopicBank
 from linkedin_content_engine.utils import as_utc
 
@@ -123,6 +124,7 @@ def _process_event(event: CalendarEvent, now: datetime) -> str:
                     tier="high",
                     category="ai",
                     calendar_event_id=event.id,
+                    topic_angle=classify_angle(f"{event.name} {event.angle_notes}", "ai"),
                 )
             )
             outcome = "banked"
