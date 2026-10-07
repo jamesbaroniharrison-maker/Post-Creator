@@ -11,3 +11,8 @@ documents/*
 linkedin_content_engine/linkedin_content_engine/context/about_me.md
 linkedin_content_engine/linkedin_content_engine/context/voice_profile_report.md
 .claude/settings.local.json
+
+# Reports built from his own samples (real posts, a private topic) - not for the repo
+VOICE-ANALYSIS.md
+VOICE-BLIND-TEST.html
+VOICE-SAMPLES-REVIEW.html

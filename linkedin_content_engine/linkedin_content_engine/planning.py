@@ -13,7 +13,10 @@ NO_PERSONAL_WEEKLY_CAP posts, filled from the best research topics available.
 """
 
 import json
+import os
 import pathlib
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 
 import reflex as rx
@@ -22,8 +25,9 @@ import sqlmodel
 from rxconfig import config
 from linkedin_content_engine.drafting_engine.pipeline import generate_and_save_draft, generate_draft_with_research
 from linkedin_content_engine.drafting_engine.research import ResearchFinding, ResearchResult
+from linkedin_content_engine.drafting_engine.rotation import assign_rotation
 from linkedin_content_engine.holidays import HOLIDAYS, holiday_for_date
-from linkedin_content_engine.models import JobRun, PersonalUpdate, PlannedNote, Post, TopicBank, WeeklyTemplate
+from linkedin_content_engine.models import CalendarEvent, JobRun, PersonalUpdate, PlannedNote, Post, TopicBank, WeeklyTemplate
 from linkedin_content_engine.scheduling import current_week_label, week_dates
 from linkedin_content_engine.utils import as_utc
 
@@ -33,6 +37,26 @@ AUTO_PREPARE_WEEKDAY = 5  # Saturday - the week's drafts are waiting for you by 
 NO_PERSONAL_WEEKLY_CAP = 3  # request: "if no personal has been done... stick to 3 posts"
 MAX_UPDATES_PER_POST = 3  # oldest unused Personal updates folded into one personal post
 AUTO_NOTE_PREFIX = "Auto-planned"  # notes this module wrote, as opposed to yours
+# Days of a week drafted at the same time. Each draft already runs its best-of-N
+# candidates in parallel (DRAFT_PARALLEL_CANDIDATES), so 2 here is ~6 model calls at once.
+WEEK_PARALLEL_DRAFTS = int(os.environ.get("WEEK_PARALLEL_DRAFTS", 2))
+
+
+def _brief_for(bank_id: int, summary: str) -> str:
+    with rx.session(url=config.db_url) as session:
+        row = session.get(TopicBank, bank_id)
+        event = session.get(CalendarEvent, row.calendar_event_id) if row and row.calendar_event_id else None
+        take = (row.user_take or "").strip() if row else ""
+        link_note = (row.calendar_link_note or "").strip() if row else ""
+    brief = summary
+    if event:
+        brief += (
+            f"\n\nThis post goes out for {event.name} ({as_utc(event.date).strftime('%d %B')}). "
+            f"Tie the story to it naturally{': ' + link_note if link_note else '.'}"
+        )
+    if take:
+        brief += f"\n\nThe author's own take - build the post around this angle: {take}"
+    return brief
 
 
 def draft_from_bank_row(
@@ -44,7 +68,8 @@ def draft_from_bank_row(
     rotation_overrides: dict[str, str] | None = None,
 ) -> None:
     """Drafts from one topic bank row and marks it used. Raises on failure so callers
-    can decide how to report it."""
+    can decide how to report it. Your own take on the row, and the occasion it's tied
+    to (with why it fits), go into the brief so the post actually uses them."""
     research = ResearchResult(
         topic=summary,
         status="ok",
@@ -52,7 +77,7 @@ def draft_from_bank_row(
     )
     post_type = CATEGORY_TO_POST_TYPE.get(category, "ai_commentary")
     generate_draft_with_research(
-        summary, post_type, research, source_bank_id=bank_id, rotation_overrides=rotation_overrides
+        _brief_for(bank_id, summary), post_type, research, source_bank_id=bank_id, rotation_overrides=rotation_overrides
     )
     with rx.session(url=config.db_url) as session:
         row = session.get(TopicBank, bank_id)
@@ -133,7 +158,7 @@ def _best_bank_row(session, category: str, claimed: set[int], used_angles: set[s
     return best(category, True) or best(category, False) or best(None, True) or best(None, False)
 
 
-def prepare_week(monday: str) -> dict:
+def prepare_week(monday: str, on_progress=None) -> dict:
     """Plans and drafts the week from the weekly template. A day that already has a note
     stays yours, and days already gone are left alone.
 
@@ -143,6 +168,14 @@ def prepare_week(monday: str) -> dict:
     - Commentary days: the best unused research finding for that category (or the
       other category if that one has run dry).
     - No personal material at all this week -> at most NO_PERSONAL_WEEKLY_CAP posts.
+
+    Two phases (request: "make things faster"): first every day is decided one at a
+    time - topic, note, rotation - so two days never claim the same finding or style;
+    then the slow drafting runs for several days at once (WEEK_PARALLEL_DRAFTS).
+
+    `on_progress(steps)`, if given, is called (from worker threads) with a fresh list of
+    {"label", "status"} dicts whenever a day changes - status is queued / drafting /
+    done / failed - so the dashboard can show each day as it goes.
 
     Returns counts: planned, personal, skipped_no_post, skipped_no_personal,
     skipped_cap, failed, cap (None when uncapped)."""
@@ -175,6 +208,10 @@ def prepare_week(monday: str) -> dict:
     counts = {k: 0 for k in ("planned", "personal", "skipped_no_post", "skipped_no_personal", "skipped_cap", "failed")}
     claimed: set[int] = set()
     used_angles: set[str] = set()
+    rotations: list[dict] = []
+    jobs: list[dict] = []
+
+    # ---- phase 1: decide every day (quick, one at a time) ----
     for d in dates:
         if d < today or d in already_noted:
             continue
@@ -182,6 +219,7 @@ def prepare_week(monday: str) -> dict:
         if post_type == "no_post":
             counts["skipped_no_post"] += 1
             continue
+        day_label = date.fromisoformat(d).strftime("%a %d %b")
 
         if post_type == "personal_reflection":
             if personal_done or not brief:
@@ -197,30 +235,19 @@ def prepare_week(monday: str) -> dict:
                 session.commit()
                 session.refresh(note)
                 note_id = note.id
-            try:
-                post = generate_and_save_draft(topic, post_type, skip_research=True, source_photo=photo)
-            except Exception:  # noqa: BLE001 - keep the updates for next time, carry on with the week
-                with rx.session(url=config.db_url) as session:
-                    row = session.get(PlannedNote, note_id)
-                    if row:
-                        session.delete(row)
-                        session.commit()
-                counts["failed"] += 1
-                continue
-            with rx.session(url=config.db_url) as session:
-                for uid in update_ids:
-                    row = session.get(PersonalUpdate, uid)
-                    if row:
-                        row.used_at = datetime.now(timezone.utc)
-                        row.used_post_id = post.id
-                        session.add(row)
-                session.commit()
+            rotation = assign_rotation(post_type=post_type, has_photo=bool(photo), also_exclude=rotations)
+            rotations.append(rotation)
             personal_done = True
-            counts["personal"] += 1
-            counts["planned"] += 1
+            jobs.append({
+                "kind": "personal",
+                "label": f"{day_label} - Personal post from your updates",
+                "topic": topic,
+                "note_id": note_id,
+                "rotation": rotation,
+            })
             continue
 
-        if cap is not None and existing + counts["planned"] >= cap:
+        if cap is not None and existing + len(jobs) >= cap:
             counts["skipped_cap"] += 1
             continue
 
@@ -245,16 +272,91 @@ def prepare_week(monday: str) -> dict:
             )
         if bank_data:
             claimed.add(bank_data[0])
+        draft_type = CATEGORY_TO_POST_TYPE.get(bank_data[4], post_type) if bank_data else post_type
+        rotation = assign_rotation(post_type=draft_type, also_exclude=rotations)
+        rotations.append(rotation)
+        kind_label = "AI commentary" if draft_type == "ai_commentary" else "Market commentary"
+        title = (bank_data[2] or bank_data[1]) if bank_data else "researching a fresh topic"
+        jobs.append({
+            "kind": "bank" if bank_data else "fresh",
+            "label": f"{day_label} - {kind_label}: {_short(title)}",
+            "bank_data": bank_data,
+            "post_type": post_type,
+            "category": category,
+            "rotation": rotation,
+        })
+
+    # ---- phase 2: draft them (slow, several at once) ----
+    lock = threading.Lock()
+    steps = [{"label": job["label"], "status": "queued"} for job in jobs]
+
+    def report(i: int, status: str) -> None:
+        with lock:
+            steps[i]["status"] = status
+            snapshot = [dict(s) for s in steps]
+        if on_progress:
+            on_progress(snapshot)
+
+    def run(i: int) -> str:
+        job = jobs[i]
+        report(i, "drafting")
         try:
-            if bank_data:
-                draft_from_bank_row(*bank_data)
+            if job["kind"] == "personal":
+                post = generate_and_save_draft(
+                    job["topic"],
+                    "personal_reflection",
+                    skip_research=True,
+                    source_photo=photo,
+                    rotation_overrides=job["rotation"],
+                )
+                with rx.session(url=config.db_url) as session:
+                    for uid in update_ids:
+                        row = session.get(PersonalUpdate, uid)
+                        if row:
+                            row.used_at = datetime.now(timezone.utc)
+                            row.used_post_id = post.id
+                            session.add(row)
+                    session.commit()
+            elif job["kind"] == "bank":
+                draft_from_bank_row(*job["bank_data"], rotation_overrides=job["rotation"])
             else:
-                generate_and_save_draft(f"Something notable in {category} recently", post_type, skip_research=False)
-            counts["planned"] += 1
+                generate_and_save_draft(
+                    f"Something notable in {job['category']} recently",
+                    job["post_type"],
+                    skip_research=False,
+                    rotation_overrides=job["rotation"],
+                )
         except Exception:  # noqa: BLE001 - keep going through the rest of the week
-            counts["failed"] += 1
+            if job["kind"] == "personal":  # keep the updates for next time
+                with rx.session(url=config.db_url) as session:
+                    row = session.get(PlannedNote, job["note_id"])
+                    if row:
+                        session.delete(row)
+                        session.commit()
+            report(i, "failed")
+            return "failed"
+        report(i, "done")
+        return job["kind"]
+
+    if on_progress:
+        on_progress([dict(s) for s in steps])
+    if jobs:
+        with ThreadPoolExecutor(max_workers=max(1, min(WEEK_PARALLEL_DRAFTS, len(jobs)))) as pool:
+            outcomes = list(pool.map(run, range(len(jobs))))
+        for outcome in outcomes:
+            if outcome == "failed":
+                counts["failed"] += 1
+            else:
+                counts["planned"] += 1
+                if outcome == "personal":
+                    counts["personal"] += 1
 
     return {**counts, "cap": cap}
+
+
+def _short(text: str, limit: int = 60) -> str:
+    text = " ".join((text or "").split())
+    return text if len(text) <= limit else text[: limit - 3].rstrip() + "..."
 
 
 def maybe_auto_prepare(today: date | None = None) -> dict:

@@ -13,6 +13,7 @@ from linkedin_content_engine.dashboard.state import (
     DashboardState,
     DayPlanView,
     PostView,
+    ProgressStepView,
     StatBreakdownItem,
     WeekPlanView,
     humanize,
@@ -193,6 +194,15 @@ def post_editable_body(post: PostView, editable: bool = True) -> rx.Component:
             min_height="140px",
             resize="vertical",
         ),
+        _post_extras(post),
+        spacing="3",
+        width="100%",
+    )
+
+
+def _post_extras(post: PostView) -> rx.Component:
+    """Hashtags, tags, sources and compliance note - editable."""
+    return rx.vstack(
         rx.text("Hashtags", size="2", weight="medium", class_name="hud-muted"),
         chip_list(
             post.hashtags,
@@ -228,7 +238,7 @@ def post_editable_body(post: PostView, editable: bool = True) -> rx.Component:
 
 def _template_select(post: PostView) -> rx.Component:
     return rx.select.root(
-        rx.select.trigger(placeholder="Template", width="15rem"),
+        rx.select.trigger(placeholder="Template", width="15rem", max_width="100%"),
         rx.select.content(
             rx.select.group(*[rx.select.item(spec.name, value=key) for key, spec in CATALOG.items()]),
         ),
@@ -318,7 +328,48 @@ def visual_panel(post: PostView, show_folder: bool = False) -> rx.Component:
     )
 
 
+def fold(title: str, *children, open_: bool = False) -> rx.Component:
+    """A native <details> section - collapsed by default, no state needed."""
+    return rx.el.details(
+        rx.el.summary(
+            rx.text(title, size="2", weight="medium", as_="span"),
+            cursor="pointer",
+            class_name="hud-muted",
+            padding_y="0.25rem",
+        ),
+        rx.vstack(*children, spacing="3", width="100%", padding_top="0.5rem"),
+        open=open_,
+        width="100%",
+    )
+
+
+def _void_dialog(post: PostView) -> rx.Component:
+    return rx.alert_dialog.root(
+        rx.alert_dialog.trigger(rx.button("Void", variant="ghost", color_scheme="gray", size="2")),
+        rx.alert_dialog.content(
+            rx.alert_dialog.title("Void this post?"),
+            rx.alert_dialog.description(
+                "It's deleted as if it never existed - gone from every page and every statistic. "
+                "Its topic goes back into the bank. Only a voided count is kept.",
+                size="2",
+            ),
+            rx.hstack(
+                rx.alert_dialog.cancel(rx.button("Keep it", variant="soft", color_scheme="gray")),
+                rx.alert_dialog.action(rx.button("Void", color_scheme="red", on_click=DashboardState.void(post.id))),
+                spacing="3",
+                justify="end",
+                margin_top="1rem",
+            ),
+        ),
+    )
+
+
 def review_post_card(post: PostView) -> rx.Component:
+    """Review card, decision-first (request: "review workflow" + "phone layout"): the
+    post text and Accept / Redraft / Reject are what you see; the occasion it's for
+    sits on top; style, hashtags, tags, sources, compliance and the visual fold away
+    under Details. The action bar sticks to the bottom of the card while you scroll."""
+    chars = post.draft_text.length()
     return rx.card(
         rx.vstack(
             rx.hstack(
@@ -327,7 +378,22 @@ def review_post_card(post: PostView) -> rx.Component:
                     post.topic_angle_label != "",
                     rx.badge(post.topic_angle_label, variant="soft", color_scheme="bronze"),
                 ),
-                status_pill(post.status, post.status_label),
+                rx.cond(
+                    post.opening_label != "",
+                    rx.badge(
+                        post.opening_label,
+                        variant="soft",
+                        color_scheme=rx.match(post.opening_strength, ("strong", "green"), ("ok", "amber"), "red"),
+                    ),
+                ),
+                rx.cond(
+                    post.voice_score_label != "",
+                    rx.badge(
+                        post.voice_score_label,
+                        variant="soft",
+                        color_scheme=rx.match(post.voice_score_band, ("strong", "green"), ("ok", "amber"), "red"),
+                    ),
+                ),
                 rx.spacer(),
                 rx.select(
                     WEEKDAYS,
@@ -340,59 +406,92 @@ def review_post_card(post: PostView) -> rx.Component:
                 wrap="wrap",
             ),
             rx.cond(
-                post.opening_label != "",
+                post.occasion_label != "",
                 rx.hstack(
-                    rx.badge(
-                        post.opening_label,
-                        variant="soft",
-                        color_scheme=rx.match(post.opening_strength, ("strong", "green"), ("ok", "amber"), "red"),
-                    ),
-                    rx.text(post.opening_note, size="1", class_name="hud-muted"),
+                    rx.badge(rx.icon("calendar", size=12), "For " + post.occasion_label, variant="soft", color_scheme="green"),
+                    rx.text(post.occasion_note, size="1", class_name="hud-muted"),
                     spacing="2",
                     align="center",
                     wrap="wrap",
                 ),
             ),
             rx.cond(
-                post.funnel_stage != "",
+                post.opening_note != "",
+                rx.text("Opening: " + post.opening_note, size="1", class_name="hud-muted"),
+            ),
+            rx.cond(
+                post.voice_notes != "",
+                rx.text("Voice: " + post.voice_notes, size="1", class_name="hud-muted"),
+            ),
+            rx.cond(
+                post.opinion_guessed,
                 rx.hstack(
-                    rx.badge(post.funnel_stage, variant="surface", color_scheme="amber"),
-                    rx.badge(post.hook_posture_label, variant="surface"),
-                    rx.badge(post.length_bucket_label, variant="surface"),
-                    rx.badge(post.structural_format_label, variant="surface"),
-                    rx.badge(post.media_pairing_label, variant="surface"),
+                    rx.badge("View is a guess", color_scheme="amber", variant="soft", size="1"),
+                    rx.text(
+                        "You didn't give a take on this one, so the opinion is the engine's guess at "
+                        "yours. If it's not what you think, Redraft with a note saying your real view.",
+                        size="1",
+                        class_name="hud-muted",
+                    ),
                     spacing="2",
+                    align="start",
                     wrap="wrap",
                 ),
             ),
-            rx.cond(
-                post.media_note != "",
-                rx.text(f"Media: {post.media_note}", size="1", class_name="hud-muted"),
-            ),
-            rx.cond(
-                post.voice_delta_label != "",
-                rx.text(post.voice_delta_label, size="1", class_name="hud-muted"),
-            ),
-            post_editable_body(post),
-            rx.cond(
-                post.visual_files.length() == 0,
-                rx.text(
-                    "The design is made when you accept this post - or make one now to preview it.",
-                    size="1",
-                    class_name="hud-muted",
-                ),
-            ),
-            visual_panel(post),
-            rx.text("Redraft note (optional)", size="2", weight="medium", class_name="hud-muted"),
             rx.text_area(
-                value=post.redraft_note,
-                on_change=lambda v: DashboardState.set_redraft_note(post.id, v),
-                placeholder="What should change? e.g. shorter, less formal, lead with the client example...",
+                value=post.draft_text,
+                on_change=lambda v: DashboardState.set_draft_text(post.id, v),
+                on_blur=lambda _: DashboardState.save_draft_text(post.id),
                 width="100%",
-                min_height="70px",
+                min_height="20rem",
                 resize="vertical",
             ),
-            record_button("redraft", post.id),
+            rx.text(
+                chars.to_string() + " / 3,000 characters - edit here, not on LinkedIn: your changes teach it your voice",
+                size="1",
+                class_name="hud-muted",
+                color=rx.cond(chars > 3000, "var(--status-rejected-text)", None),
+            ),
+            fold(
+                "Details - style, hashtags, sources, visual",
+                rx.cond(
+                    post.funnel_stage != "",
+                    rx.hstack(
+                        rx.badge(post.funnel_stage, variant="surface", color_scheme="amber"),
+                        rx.badge(post.hook_posture_label, variant="surface"),
+                        rx.badge(post.length_bucket_label, variant="surface"),
+                        rx.badge(post.structural_format_label, variant="surface"),
+                        rx.badge(post.media_pairing_label, variant="surface"),
+                        spacing="2",
+                        wrap="wrap",
+                    ),
+                ),
+                rx.cond(post.media_note != "", rx.text(f"Media: {post.media_note}", size="1", class_name="hud-muted")),
+                rx.cond(post.voice_delta_label != "", rx.text(post.voice_delta_label, size="1", class_name="hud-muted")),
+                _post_extras(post),
+                rx.cond(
+                    post.visual_files.length() == 0,
+                    rx.text(
+                        "The design is made when you accept this post - or make one now to preview it.",
+                        size="1",
+                        class_name="hud-muted",
+                    ),
+                ),
+                visual_panel(post),
+            ),
+            fold(
+                "Redraft with a note",
+                rx.text_area(
+                    value=post.redraft_note,
+                    on_change=lambda v: DashboardState.set_redraft_note(post.id, v),
+                    placeholder="What should change? e.g. shorter, less formal, lead with the client example...",
+                    width="100%",
+                    min_height="70px",
+                    resize="vertical",
+                ),
+                record_button("redraft", post.id),
+                open_=post.redraft_note != "",
+            ),
             rx.hstack(
                 rx.button("Accept", on_click=DashboardState.accept(post.id), **PRIMARY_CTA),
                 rx.button(
@@ -403,29 +502,19 @@ def review_post_card(post: PostView) -> rx.Component:
                 ),
                 rejection_menu(post.id),
                 rx.spacer(),
-                rx.alert_dialog.root(
-                    rx.alert_dialog.trigger(rx.button("Void", variant="ghost", color_scheme="gray", size="2")),
-                    rx.alert_dialog.content(
-                        rx.alert_dialog.title("Void this post?"),
-                        rx.alert_dialog.description(
-                            "It's deleted as if it never existed - gone from Review and every statistic. "
-                            "Its topic goes back into the bank. Only a voided count is kept.",
-                            size="2",
-                        ),
-                        rx.hstack(
-                            rx.alert_dialog.cancel(rx.button("Keep it", variant="soft", color_scheme="gray")),
-                            rx.alert_dialog.action(
-                                rx.button("Void", color_scheme="red", on_click=DashboardState.void(post.id))
-                            ),
-                            spacing="3",
-                            justify="end",
-                            margin_top="1rem",
-                        ),
-                    ),
+                rx.icon_button(
+                    rx.icon("copy", size=16),
+                    on_click=[rx.set_clipboard(post.draft_text), rx.toast("Copied")],
+                    variant="ghost",
+                    color_scheme="gray",
+                    title="Copy text",
                 ),
+                _void_dialog(post),
                 spacing="2",
                 wrap="wrap",
                 width="100%",
+                align="center",
+                class_name="hud-sticky-actions",
             ),
             spacing="3",
             width="100%",
@@ -480,12 +569,38 @@ def accepted_post_card(post: PostView) -> rx.Component:
                         ),
                         spacing="1",
                     ),
+                    rx.spacer(),
+                    _void_dialog(post),
                     spacing="3",
+                    width="100%",
+                    align="end",
                 ),
-                rx.hstack(
-                    rx.button("Copy text", on_click=rx.set_clipboard(post.draft_text), **SECONDARY_CTA),
-                    rx.button("Mark published", on_click=DashboardState.mark_published(post.id), **PRIMARY_CTA),
-                    spacing="2",
+                rx.vstack(
+                    rx.hstack(
+                        rx.button("Copy text", on_click=rx.set_clipboard(post.draft_text), **SECONDARY_CTA),
+                        rx.button("Mark published", on_click=DashboardState.mark_published(post.id), **PRIMARY_CTA),
+                        rx.spacer(),
+                        # Changed your mind (request, 6 Oct): back to Rejected, or gone entirely.
+                        rx.button(
+                            "Back to Rejected",
+                            on_click=DashboardState.move_to_rejected(post.id),
+                            variant="ghost",
+                            color_scheme="gray",
+                            size="2",
+                        ),
+                        _void_dialog(post),
+                        spacing="2",
+                        width="100%",
+                        wrap="wrap",
+                        align="center",
+                    ),
+                    rx.text(
+                        "Make any last changes in the box above before copying - edits made on "
+                        "LinkedIn are never seen, so it can't learn from them.",
+                        size="1",
+                        class_name="hud-muted",
+                    ),
+                    spacing="1",
                 ),
             ),
             spacing="3",
@@ -733,11 +848,21 @@ def rejected_post_card(post: PostView) -> rx.Component:
             ),
             post_editable_body(post, editable=False),
             rx.box(f"Reason: {post.rejection_reason}", class_name="hud-pill hud-pill-rejected"),
-            rx.button(
-                "Reuse as new post",
-                size="2",
-                on_click=DashboardState.reuse_as_new_topic(post.id),
-                **SECONDARY_CTA,
+            rx.hstack(
+                # Changed your mind (request, 6 Oct): accept it after all, or void it.
+                rx.button("Accept after all", on_click=DashboardState.restore_to_accepted(post.id), **PRIMARY_CTA),
+                rx.button(
+                    "Reuse as new post",
+                    size="2",
+                    on_click=DashboardState.reuse_as_new_topic(post.id),
+                    **SECONDARY_CTA,
+                ),
+                rx.spacer(),
+                _void_dialog(post),
+                spacing="2",
+                width="100%",
+                wrap="wrap",
+                align="center",
             ),
             spacing="3",
             width="100%",
@@ -753,7 +878,22 @@ def nav_bar(active: str) -> rx.Component:
     return rx.hstack(
         *[
             rx.link(
-                rx.text(label, size="2", weight="medium" if href == active else "regular"),
+                rx.hstack(
+                    rx.text(label, size="2", weight="medium" if href == active else "regular"),
+                    *(
+                        [
+                            rx.cond(
+                                DashboardState.posts.length() > 0,
+                                rx.badge(DashboardState.posts.length(), size="1", variant="solid", color_scheme="bronze"),
+                                rx.fragment(),
+                            )
+                        ]
+                        if href == "/posts"
+                        else []
+                    ),
+                    spacing="1",
+                    align="center",
+                ),
                 href=href,
                 class_name="hud-muted" if href != active else "",
                 style={"color": "var(--text)"} if href == active else {},
@@ -764,10 +904,75 @@ def nav_bar(active: str) -> rx.Component:
             for label, href in NAV_ITEMS
         ],
         spacing="6",
-        wrap="wrap",
         width="100%",
         border_bottom="1px solid var(--border)",
         margin_bottom="1.5rem",
+        class_name="hud-nav",
+    )
+
+
+def _progress_step(step: ProgressStepView) -> rx.Component:
+    icon = rx.match(
+        step.status,
+        ("drafting", rx.spinner(size="1")),
+        ("done", rx.icon("circle-check", size=16, color="var(--grass-9)")),
+        ("failed", rx.icon("circle-x", size=16, color="var(--red-9)")),
+        rx.icon("circle", size=16, color="var(--gray-8)"),
+    )
+    return rx.hstack(
+        rx.box(icon, width="16px", display="flex", align_items="center"),
+        rx.text(
+            step.label,
+            size="2",
+            weight=rx.cond(step.status == "drafting", "medium", "regular"),
+            class_name=rx.cond(step.status == "queued", "hud-muted", ""),
+        ),
+        spacing="2",
+        align="center",
+    )
+
+
+def status_panel() -> rx.Component:
+    """The banner under the nav. While something slow runs it shows a spinner, a
+    ticking timer and - when the job reports one - a live per-item list (request: "make
+    it look less like just frozen screens when it is thinking"). Afterwards it's the
+    usual click-to-dismiss message, keeping the final list so you can see what failed."""
+    steps = rx.cond(
+        DashboardState.progress_steps.length() > 0,
+        rx.vstack(rx.foreach(DashboardState.progress_steps, _progress_step), spacing="1", padding_top="0.5rem"),
+        rx.fragment(),
+    )
+    return rx.cond(
+        DashboardState.is_busy,
+        rx.callout.root(
+            rx.callout.icon(rx.spinner(size="2")),
+            rx.vstack(
+                rx.hstack(
+                    rx.callout.text(DashboardState.status_message),
+                    rx.spacer(),
+                    rx.badge(DashboardState.busy_elapsed, variant="soft", color_scheme="gray"),
+                    width="100%",
+                    align="center",
+                ),
+                steps,
+                spacing="1",
+                width="100%",
+            ),
+            width="100%",
+            margin_bottom="1rem",
+        ),
+        rx.cond(
+            DashboardState.status_message != "",
+            rx.callout.root(
+                rx.callout.icon(rx.icon("info")),
+                rx.vstack(rx.callout.text(DashboardState.status_message), steps, spacing="1", width="100%"),
+                width="100%",
+                margin_bottom="1rem",
+                on_click=DashboardState.clear_status_message,
+                cursor="pointer",
+            ),
+            rx.fragment(),
+        ),
     )
 
 
@@ -781,7 +986,9 @@ def page_shell(active: str, *children) -> rx.Component:
                     rx.vstack(
                         rx.heading("Content Engine", size="6"),
                         rx.text(
-                            "Review queue, research, and voice-matched drafting", size="2", class_name="hud-muted"
+                            "Review queue, research, and voice-matched drafting",
+                            size="2",
+                            class_name="hud-muted hud-header-sub",
                         ),
                         spacing="0",
                     ),
@@ -801,22 +1008,12 @@ def page_shell(active: str, *children) -> rx.Component:
                 padding_bottom="1rem",
             ),
             nav_bar(active),
-            rx.cond(
-                DashboardState.status_message != "",
-                rx.callout(
-                    DashboardState.status_message,
-                    icon="info",
-                    width="100%",
-                    margin_bottom="1rem",
-                    on_click=DashboardState.clear_status_message,
-                    cursor="pointer",
-                ),
-                rx.fragment(),
-            ),
+            status_panel(),
             rx.vstack(*children, spacing="6", width="100%", padding_bottom="3rem"),
             on_mount=DashboardState.load_dashboard,
             size="4",
             padding="1.5rem",
+            class_name="hud-shell",
         ),
         min_height="100vh",
         background="var(--bg)",

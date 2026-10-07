@@ -5,10 +5,13 @@ populates, shortlist forms, drafts generate, you review and approve or reject,
 stats update) has to run end to end without touching code.
 """
 
+import asyncio
 import base64
 import json
 import pathlib
+import shutil
 import tempfile
+import time
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
@@ -34,7 +37,7 @@ from linkedin_content_engine.drafting_engine.rotation import (
 )
 from linkedin_content_engine.email_engine.settings import get_email_settings, save_email_settings
 from linkedin_content_engine.holidays import holiday_for_date
-from linkedin_content_engine.calendar_engine.pipeline import try_link_now
+from linkedin_content_engine.calendar_engine.pipeline import reject_calendar_link, summarise_bank_row, try_link_now
 from linkedin_content_engine.planning import (
     NO_PERSONAL_WEEKLY_CAP,
     draft_from_bank_row,
@@ -65,10 +68,20 @@ from linkedin_content_engine.research_cron.pipeline import run_daily_research
 from linkedin_content_engine.utils import as_utc
 from linkedin_content_engine.voice_engine.build_profile import build_and_save_profile
 from linkedin_content_engine.voice_engine.ingestion import (
+    USABLE_ORIGINS,
     add_sample,
+    get_all_samples,
     get_weighted_samples_by_register,
     parse_labeled_conversation,
+    sample_text,
+    set_sample_origin,
 )
+from linkedin_content_engine.voice_engine.edits import edit_stats
+from linkedin_content_engine.voice_engine.fingerprint import reference_from_corpus as voice_reference
+from linkedin_content_engine.voice_engine.fingerprint import score_text as score_voice_text
+from linkedin_content_engine.voice_engine.fingerprint import validate_score
+from linkedin_content_engine.drafting_engine.persona import PERSONA_EXEMPLARS
+from linkedin_content_engine.voice_engine.questions import coverage_summary, suggested_questions
 from linkedin_content_engine.voice_engine.similarity import TARGET_REGISTER, _tokenize, validate_voice_metric
 from linkedin_content_engine.scheduling import (
     WEEKLY_CAP,
@@ -173,6 +186,12 @@ class PostView(pydantic.BaseModel):
     opening_label: str = ""  # e.g. "Opening 7/10"
     opening_note: str = ""
     opening_strength: str = ""  # strong / ok / weak - colours the badge
+    # "Sounds like you" (voice_engine/fingerprint.py): badge text, colour band, and the reasons
+    voice_score_label: str = ""  # e.g. "Sounds like you 78/100"
+    voice_score_band: str = ""  # strong / ok / weak
+    voice_notes: str = ""
+    # A news post whose opinion he never gave: the view in it is the engine's guess at his.
+    opinion_guessed: bool = False
     redraft_note: str = ""  # what to change on Redraft - typed or dictated, kept across reloads
     # Brand visual (visuals_engine/): paths relative to the upload dir, for rx.get_upload_url
     visual_files: list[str] = []
@@ -182,6 +201,10 @@ class PostView(pydantic.BaseModel):
     visual_note: str = ""
     visual_choice: str = ""  # the template picked in the switcher, before "Re-make visual"
     bundle_dir: str = ""
+    # The calendar occasion this draft was written for (via its Topic Bank row), and
+    # why the story fits it - shown on Review cards.
+    occasion_label: str = ""
+    occasion_note: str = ""
 
 
 class BankView(pydantic.BaseModel):
@@ -199,6 +222,12 @@ class BankView(pydantic.BaseModel):
     # membership from inside a rx.foreach render function.
     is_selected: bool = False
     occasion_label: str = ""  # set when tied to a calendar occasion, e.g. "AI Appreciation Day, 16 Jul"
+    occasion_link_note: str = ""  # why the local model judged it a fit
+    is_occasion_angle: bool = False  # the occasion's own angle, not a real story
+    user_take: str = ""  # your own take / side for the post
+    llm_summary: str = ""
+    summary_open: bool = False
+    summarising: bool = False
 
 
 class QueuedDraftView(pydantic.BaseModel):
@@ -218,6 +247,8 @@ class QueuedDraftView(pydantic.BaseModel):
     category: str
     tier_label: str = ""
     category_label: str = ""
+    occasion_label: str = ""
+    user_take: str = ""
     funnel_stage: str = AUTO_SENTINEL
     hook_posture: str = AUTO_SENTINEL
     length_bucket: str = AUTO_SENTINEL
@@ -296,6 +327,9 @@ class VoiceSampleView(pydantic.BaseModel):
     contributing_zeta_words: list[str] = []
     contributing_bigrams: list[str] = []
     is_expanded: bool = False
+    # Whose words these are (ingestion.ORIGINS); only "own" samples shape the voice.
+    origin: str = "own"
+    origin_note: str = ""
 
 
 class VoiceConvoPairView(pydantic.BaseModel):
@@ -372,6 +406,14 @@ class WeekPlanView(pydantic.BaseModel):
     monday: str
     already_scheduled: int  # accepted/published posts already locked into this week
     days: list[DayPlanView] = []
+
+
+class ProgressStepView(pydantic.BaseModel):
+    """One line of the live progress list under the busy banner (e.g. one day of a week
+    being drafted). status: queued / drafting / done / failed."""
+
+    label: str
+    status: str
 
 
 class StatBreakdownItem(pydantic.BaseModel):
@@ -470,6 +512,11 @@ def _row_to_view(p: Post) -> PostView:
         opening_strength=("strong" if (p.opening_score or 0) >= 8 else "ok" if (p.opening_score or 0) >= 5 else "weak")
         if p.opening_score
         else "",
+        voice_score_label=f"Sounds like you {p.voice_score}/100" if p.voice_score is not None else "",
+        voice_score_band=("strong" if p.voice_score >= 75 else "ok" if p.voice_score >= 55 else "weak")
+        if p.voice_score is not None
+        else "",
+        voice_notes=p.voice_notes or "",
         visual_files=[_upload_rel(f) for f in _json_list(p.visual_files) if pathlib.Path(f).exists()],
         visual_pdf=_upload_rel(p.visual_pdf) if p.visual_pdf and pathlib.Path(p.visual_pdf).exists() else "",
         visual_template=p.visual_template or "",
@@ -487,6 +534,10 @@ class DashboardState(rx.State):
     accepted_posts: list[PostView] = []  # approved + published
     rejected_posts: list[PostView] = []  # last 5 only, per scheduling.REJECTED_KEEP
     bank_rows: list[BankView] = []
+    # Topic Bank search + filter (request: "search and filter... so a long bank is easy
+    # to scan"). bank_filter: all / occasion / high / ai / market.
+    bank_search: str = ""
+    bank_filter: str = "all"
     draft_queue: list[QueuedDraftView] = []
     forced_topics: list[ForcedTopicView] = []
     history_posts: list[PostView] = []
@@ -512,6 +563,10 @@ class DashboardState(rx.State):
     stats_by_angle: list[StatBreakdownItem] = []  # AI/market/opinion posts by angle
     stats_by_opening: list[StatBreakdownItem] = []  # strong / ok / weak / not scored
     stats_opening_avg: str = "-"
+    stats_voice_avg: str = "-"
+    stats_edit_rate: str = "-"
+    stats_score_check: str = ""  # whether his edits move the score up (the score's own test)
+    voice_health_warning: str = ""  # shown on Home when recent drafts score clearly lower
     stats_voided: str = "0"  # tally only - voided posts are gone from everything else
     stats_voided_detail: str = ""
 
@@ -553,6 +608,11 @@ class DashboardState(rx.State):
     upload_post_type: str = "personal_reflection"
     status_message: str = ""
     is_busy: bool = False
+    # Live progress while something slow runs (request: "make it look less like just
+    # frozen screens when it is thinking") - a ticking timer, plus a per-item list when
+    # the job reports one (prepare_week does, day by day).
+    busy_seconds: int = 0
+    progress_steps: list[ProgressStepView] = []
 
     # Voice page - the only way real writing samples get into voice_samples was a
     # CLI script; there was no dashboard flow for it at all, so the profile driving
@@ -562,6 +622,9 @@ class DashboardState(rx.State):
     voice_sample_counts: list[SampleCountView] = []
     voice_new_sample_text: str = ""
     voice_profile_status: str = "no profile generated yet"
+    # "N shape your voice; M set aside" - samples marked AI-written, suspected or private
+    # stay listed but are never used (ingestion.USABLE_ORIGINS).
+    voice_usage_summary: str = ""
     # Zeta words (real, corpus-derived - voice_engine/similarity.py::compute_zeta_
     # words) and repeated bigrams, surfaced so James can see what the profile is
     # actually picking up on, not just trust it blindly.
@@ -582,6 +645,10 @@ class DashboardState(rx.State):
     # LinkedIn posts). One pair at a time:
     voice_qa_question: str = ""
     voice_qa_answer: str = ""
+    # Questions that would help the voice most (voice_engine/questions.py), thinnest area first,
+    # and a one-line count of which areas his samples cover.
+    voice_suggestions: list[str] = []
+    voice_coverage_summary: str = ""
     # Or a whole labeled transcript at once ("I'll give the full conversation, just a
     # straight script... I will ask gemini to label who is speaking") - parsed into a
     # preview the user confirms before anything is actually saved.
@@ -656,6 +723,59 @@ class DashboardState(rx.State):
     @rx.event
     def clear_status_message(self):
         self.status_message = ""
+        self.progress_steps = []
+
+    @rx.var
+    def home_summary(self) -> dict[str, str]:
+        """Home's "needs you" numbers, from data already loaded on the page."""
+        this_week, next_week = current_week_label(), next_week_monday()
+        week_dates_this = {
+            (datetime.strptime(this_week, "%Y-%m-%d") + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)
+        }
+        week_dates_next = {
+            (datetime.strptime(next_week, "%Y-%m-%d") + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)
+        }
+
+        def count(week: str, status: str) -> int:
+            return sum(1 for p in self.accepted_posts if p.scheduled_week == week and p.status == status)
+
+        return {
+            "review": str(len(self.posts)),
+            "this_accepted": str(count(this_week, "approved")),
+            "this_published": str(count(this_week, "published")),
+            "this_planned": str(sum(1 for n in self.planned_notes if n.target_date in week_dates_this)),
+            "next_accepted": str(count(next_week, "approved") + count(next_week, "published")),
+            "next_planned": str(sum(1 for n in self.planned_notes if n.target_date in week_dates_next)),
+            "takes": str(len(self.opinion_prompts)),
+            "personal": str(len(self.personal_updates)),
+        }
+
+    @rx.var
+    def busy_elapsed(self) -> str:
+        return f"{self.busy_seconds // 60}:{self.busy_seconds % 60:02d}"
+
+    async def _run_slow(self, fn, *args, progress: dict | None = None, **kwargs):
+        """Runs blocking work (model calls, rendering, email) on a worker thread so the
+        app stays responsive, ticking busy_seconds every second and pushing any
+        progress the work reports via progress["steps"]. Call from background events
+        only, outside `async with self`. Re-raises whatever the work raised."""
+        async with self:
+            self.busy_seconds = 0
+        started = time.monotonic()
+        task = asyncio.ensure_future(asyncio.to_thread(fn, *args, **kwargs))
+        shown = None
+        while not task.done():
+            await asyncio.wait({task}, timeout=1)
+            steps = progress.get("steps") if progress is not None else None
+            async with self:
+                self.busy_seconds = int(time.monotonic() - started)
+                if steps is not None and steps is not shown:
+                    self.progress_steps = [ProgressStepView(**step) for step in steps]
+                    shown = steps
+        if progress is not None and progress.get("steps") is not None and progress["steps"] is not shown:
+            async with self:
+                self.progress_steps = [ProgressStepView(**step) for step in progress["steps"]]
+        return task.result()
 
     def _reload_posts(self):
         with rx.session(url=config.db_url) as session:
@@ -664,9 +784,36 @@ class DashboardState(rx.State):
                 .where(Post.status == "drafted")
                 .order_by(sqlmodel.col(Post.created_at).desc())
             ).all()
+            bank_ids = [p.source_bank_id for p in rows if p.source_bank_id]
+            occasions = {
+                bank.id: (f"{event.name}, {as_utc(event.date).strftime('%d %b')}", bank.calendar_link_note or "")
+                for bank, event in session.exec(
+                    sqlmodel.select(TopicBank, CalendarEvent)
+                    .join(CalendarEvent, TopicBank.calendar_event_id == CalendarEvent.id)
+                    .where(sqlmodel.col(TopicBank.id).in_(bank_ids))
+                ).all()
+            } if bank_ids else {}
+            # Topic Bank rows he gave his own take on: a news post from one of those carries his
+            # real view; any other news post's opinion is the engine's guess at it.
+            with_take = {
+                bank.id
+                for bank in session.exec(
+                    sqlmodel.select(TopicBank).where(sqlmodel.col(TopicBank.id).in_(bank_ids))
+                ).all()
+                if (bank.user_take or "").strip()
+            } if bank_ids else set()
         notes = {p.id: p.redraft_note for p in self.posts if p.redraft_note}
         self.posts = [
-            _row_to_view(p).model_copy(update={"redraft_note": notes.get(p.id, "")}) for p in rows
+            _row_to_view(p).model_copy(
+                update={
+                    "redraft_note": notes.get(p.id, ""),
+                    "occasion_label": occasions.get(p.source_bank_id, ("", ""))[0],
+                    "occasion_note": occasions.get(p.source_bank_id, ("", ""))[1],
+                    "opinion_guessed": p.post_type in ("ai_commentary", "market_commentary")
+                    and p.source_bank_id not in with_take,
+                }
+            )
+            for p in rows
         ]
 
     def _reload_accepted(self):
@@ -872,7 +1019,7 @@ class DashboardState(rx.State):
 
         try:
             skip_research = post_type == "personal_reflection"
-            post = generate_and_save_draft(note_text, post_type, skip_research=skip_research)
+            post = await self._run_slow(generate_and_save_draft, note_text, post_type, skip_research=skip_research)
             with rx.session(url=config.db_url) as session:
                 row = session.get(Post, post.id)
                 dt = datetime.strptime(target_date, "%Y-%m-%d")
@@ -910,6 +1057,7 @@ class DashboardState(rx.State):
                 .limit(20)
             ).all()
         pairs = [(r, f"{e.name}, {as_utc(e.date).strftime('%d %b')}") for r, e in linked] + [(r, "") for r in rows]
+        open_ids = {row.id for row in self.bank_rows if row.summary_open}
         self.bank_rows = [
             BankView(
                 id=r.id,
@@ -921,6 +1069,11 @@ class DashboardState(rx.State):
                 category=r.category,
                 category_label=humanize(r.category),
                 occasion_label=occasion,
+                occasion_link_note=r.calendar_link_note or "",
+                is_occasion_angle=bool(occasion) and not r.source_url,
+                user_take=r.user_take or "",
+                llm_summary=r.llm_summary or "",
+                summary_open=r.id in open_ids,
             )
             for r, occasion in pairs
         ]
@@ -979,7 +1132,7 @@ class DashboardState(rx.State):
             return
 
         try:
-            result = try_link_now(event_id)
+            result = await asyncio.to_thread(try_link_now, event_id)
         except Exception as exc:  # noqa: BLE001
             result = {"status": "error", "reason": str(exc)}
 
@@ -988,6 +1141,8 @@ class DashboardState(rx.State):
             self._reload_bank()
             if result.get("status") == "ok" and result.get("outcome") == "linked":
                 self.status_message = "Linked to a real story - it's at the top of the Topic Bank."
+            elif result.get("status") == "ok" and result.get("outcome") == "found_online":
+                self.status_message = "Nothing in the Topic Bank fit, so found a story online - it's at the top of the Topic Bank."
             elif result.get("status") == "ok":
                 self.status_message = "No matching story yet, so its angle is banked at the top of the Topic Bank."
             elif result.get("status") == "too_early":
@@ -1223,6 +1378,43 @@ class DashboardState(rx.State):
         )
         scored = [p.opening_score for p in all_posts if p.opening_score]
         self.stats_opening_avg = f"{sum(scored) / len(scored):.1f}/10" if scored else "-"
+        # "Sounds like you" and how much he edits before accepting: the second is the real,
+        # human measure of the voice, and should fall over time (voice_engine/edits.py).
+        voices = [p.voice_score for p in all_posts if p.voice_score is not None]
+        self.stats_voice_avg = f"{sum(voices) / len(voices):.0f}/100 over {len(voices)} post(s)" if voices else "-"
+        # Voice health: drafts suddenly sounding less like him, with nothing else changed,
+        # usually means the free model behind "...-latest" was swapped (risk raised 6 Oct).
+        scored_posts = sorted(
+            (p for p in all_posts if p.voice_score is not None and p.created_at is not None),
+            key=lambda p: as_utc(p.created_at),
+            reverse=True,
+        )
+        last5 = [p.voice_score for p in scored_posts[:5]]
+        earlier = [p.voice_score for p in scored_posts[5:20]]
+        self.voice_health_warning = ""
+        if len(last5) >= 3 and len(earlier) >= 3:
+            now_avg, before_avg = sum(last5) / len(last5), sum(earlier) / len(earlier)
+            if now_avg <= before_avg - 12:
+                self.voice_health_warning = (
+                    f"Your last {len(last5)} drafts average {now_avg:.0f}/100 on 'sounds like you', down "
+                    f"from {before_avg:.0f}. If you haven't changed anything, the free AI model may have "
+                    "been swapped behind the scenes - worth a look before accepting them."
+                )
+        edits = edit_stats()
+        self.stats_edit_rate = (
+            f"{edits.average_changed:.0%} of words changed on average, across {edits.accepted_with_original} "
+            f"accepted post(s) ({edits.edited} edited at all)"
+            if edits.accepted_with_original
+            else "Not measured yet - starts with the next post you accept."
+        )
+        self.stats_score_check = (
+            f"Your edits raised the 'sounds like you' score on {edits.score_up} post(s) and lowered it on "
+            f"{edits.score_down}. "
+            + ("Mostly up - the score is tracking what you change." if edits.score_up > edits.score_down
+               else "Not mostly up yet - if that holds, the score is measuring the wrong things and needs re-tuning.")
+            if edits.score_up + edits.score_down
+            else ""
+        )
         self.stats_by_opening = _breakdown(
             {
                 "Strong (8-10)": sum(1 for x in scored if x >= 8),
@@ -1309,12 +1501,15 @@ class DashboardState(rx.State):
             choice = view.visual_choice if view else ""
             self.is_busy = True
             self.status_message = "Making the visual..."
-        make_visual_for_post(post_id, template_key=choice or None, force=True)
-        with rx.session(url=config.db_url) as session:
-            post = session.get(Post, post_id)
-            approved = post is not None and post.status in ("approved", "published")
-        if approved:
-            build_bundle(post_id)
+        def work():
+            make_visual_for_post(post_id, template_key=choice or None, force=True)
+            with rx.session(url=config.db_url) as session:
+                post = session.get(Post, post_id)
+                approved = post is not None and post.status in ("approved", "published")
+            if approved:
+                build_bundle(post_id)
+
+        await self._run_slow(work)
         async with self:
             self.is_busy = False
             self.status_message = "Visual ready." if self._visual_ok(post_id) else "Visual didn't work - see the note on the post."
@@ -1342,25 +1537,42 @@ class DashboardState(rx.State):
     def prepare_next_week(self):
         return DashboardState.plan_week(next_week_monday())
 
+    @rx.event
+    def prepare_this_week(self):
+        """Same as next week, for the current week - days already gone are skipped."""
+        return DashboardState.plan_week(current_week_label())
+
+    @rx.event
+    def send_digest_now(self):
+        """Settings' "Send next week's email now" - next week's digest."""
+        return DashboardState.send_week_digest("next")
+
     @rx.event(background=True)
-    async def send_digest_now(self):
-        """Sends next week's digest now, regardless of the scheduled day."""
+    async def send_week_digest(self, which: str):
+        """Sends a week's digest now, regardless of the scheduled day: which="next" or
+        "this" (request: "email them to me, this week's posts")."""
         from linkedin_content_engine.email_engine.digest import build_digest
         from linkedin_content_engine.email_engine.send import send_email
 
         async with self:
             self.is_busy = True
-            self.status_message = "Building next week's email..."
+            label = "this week's" if which == "this" else "next week's"
+            self.status_message = f"Building {label} email..."
+        week = current_week_label() if which == "this" else None
         settings = get_email_settings()
         if not settings or not settings.recipient_email:
             message = "Set a recipient in Email reminders first."
         else:
-            d = build_digest()
-            sent, why = send_email(
-                settings.recipient_email, d["subject"], d["text"],
-                html=d["html"], inline_images=d["inline"], attachments=d["attachments"],
-            )
-            message = f"Sent next week's email ({d['count']} post(s))." if sent else why
+            def work():
+                d = build_digest(week)
+                sent, why = send_email(
+                    settings.recipient_email, d["subject"], d["text"],
+                    html=d["html"], inline_images=d["inline"], attachments=d["attachments"],
+                )
+                return d, sent, why
+
+            d, sent, why = await self._run_slow(work)
+            message = f"Sent {label} email ({d['count']} post(s))." if sent else why
         async with self:
             self.is_busy = False
             self.status_message = message
@@ -1375,9 +1587,17 @@ class DashboardState(rx.State):
 
     @rx.event
     def save_draft_text(self, post_id: int):
+        """Saves an edit and re-scores it, so the "sounds like you" badge always describes the
+        text as it now stands - and Statistics can check whether his edits move the score the
+        right way (voice_engine/edits.py::score_agreement)."""
         post = self._find_post(post_id)
         if post:
-            self._persist(post_id, draft_text=post.draft_text)
+            result = score_voice_text(post.draft_text, voice_reference())
+            notes = f"Still off: {result.summary()}." if result.summary() else ""
+            self._persist(post_id, draft_text=post.draft_text, voice_score=result.score, voice_notes=notes or None)
+            post.voice_score_label = f"Sounds like you {result.score}/100"
+            post.voice_score_band = "strong" if result.score >= 75 else "ok" if result.score >= 55 else "weak"
+            post.voice_notes = notes
 
     @rx.event
     def set_compliance_note(self, post_id: int, value: str):
@@ -1472,8 +1692,8 @@ class DashboardState(rx.State):
         async with self:
             self.status_message = "Accepted - making its design in the background..."
         try:
-            make_visual_for_post(post_id)
-            build_bundle(post_id)
+            await asyncio.to_thread(make_visual_for_post, post_id)
+            await asyncio.to_thread(build_bundle, post_id)
         except Exception:  # noqa: BLE001 - the post is accepted either way
             pass
         async with self:
@@ -1483,9 +1703,14 @@ class DashboardState(rx.State):
 
     @rx.event
     def void(self, post_id: int):
-        """Removes the post as if it never existed (voiding.py) - only a tally remains."""
+        """Removes the post as if it never existed (voiding.py) - only a tally remains. Works
+        from Review, Accepted and Rejected (request: "add void to accepted posts too, in case
+        I change my mind... same with rejected")."""
         if void_post(post_id):
-            self.status_message = "Voided - gone from Review and from every statistic."
+            self.status_message = "Voided - gone from every page and every statistic."
+        # A voided accepted post leaves a gap in its week, so the weeks are re-sorted.
+        allocate_accepted_posts()
+        self._rebuild_bundles()
         self._reload_posts()
         self._reload_accepted()
         self._reload_rejected()
@@ -1503,6 +1728,50 @@ class DashboardState(rx.State):
         self._reload_posts()
         self._reload_rejected()
         self._reload_stats()
+
+    @rx.event
+    def move_to_rejected(self, post_id: int):
+        """Accepted -> Rejected (request: "a way to revert to rejected, in case I change my
+        mind"). Only for posts not yet published - a published one is already on LinkedIn.
+        Its week slot and ready-to-post folder go; the other accepted posts are re-sorted."""
+        from linkedin_content_engine.exports import EXPORTS_DIR
+
+        post = self._find_post(post_id)
+        if post is None or post.status != "approved":
+            self.status_message = "Only accepted posts that aren't published yet can go back to Rejected."
+            return
+        now = datetime.now(timezone.utc)
+        self._persist(
+            post_id,
+            status="rejected",
+            reviewed_at=now,
+            rejection_reason="Changed my mind after accepting",
+            scheduled_week=None,
+        )
+        if EXPORTS_DIR.exists():
+            for marker in EXPORTS_DIR.glob(f"*/*/.post-{post_id}"):
+                shutil.rmtree(marker.parent, ignore_errors=True)
+        prune_rejected_posts()  # request: only keep the last 5
+        allocate_accepted_posts()
+        self._rebuild_bundles()
+        self._reload_accepted()
+        self._reload_rejected()
+        self._reload_stats()
+        self.status_message = "Moved back to Rejected."
+
+    @rx.event
+    def restore_to_accepted(self, post_id: int):
+        """Rejected -> Accepted (request: "...rejected with a way to make it accepted"). The
+        same as accepting it in Review: it's slotted into a week and gets its design."""
+        now = datetime.now(timezone.utc)
+        self._persist(post_id, status="approved", reviewed_at=now, rejection_reason=None)
+        allocate_accepted_posts()
+        self._rebuild_bundles()
+        self._reload_accepted()
+        self._reload_rejected()
+        self._reload_stats()
+        self.status_message = "Moved to Accepted - it's been put into a week."
+        return DashboardState.make_visual_after_accept(post_id)
 
     @rx.event(background=True)
     async def redraft(self, post_id: int):
@@ -1523,6 +1792,8 @@ class DashboardState(rx.State):
                 return
             topic, post_type, sources_json = old.draft_text, old.post_type, old.sources
             photo = old.source_photo
+            bank = session.get(TopicBank, old.source_bank_id) if old.source_bank_id else None
+            bank_summary = bank.summary if bank else ""
 
         # With a note, the model needs the whole previous draft to know what it's
         # changing; without one, keep the original behaviour (a fresh take on its opening).
@@ -1530,9 +1801,18 @@ class DashboardState(rx.State):
             f"Rewrite this previous draft:\n\n{topic}\n\nWhat to change: {note}" if note else topic[:200]
         )
         try:
-            findings = [ResearchFinding(**s) for s in json.loads(sources_json or "[]")]
+            # Saved sources are only {title, url} (SourceRef) - the finding's text comes
+            # from its Topic Bank row when there is one, else the title stands in.
+            findings = [
+                ResearchFinding(
+                    title=s.get("title", ""),
+                    url=s.get("url", ""),
+                    content=s.get("content") or bank_summary or s.get("title", ""),
+                )
+                for s in json.loads(sources_json or "[]")
+            ]
             research = ResearchResult(topic=topic, status="ok" if findings else "no_results", findings=findings)
-            generate_draft_with_research(draft_topic, post_type, research, source_photo=photo)
+            await self._run_slow(generate_draft_with_research, draft_topic, post_type, research, source_photo=photo)
             now = datetime.now(timezone.utc)
             with rx.session(url=config.db_url) as session:
                 old = session.get(Post, post_id)
@@ -1617,7 +1897,7 @@ class DashboardState(rx.State):
             )
 
         try:
-            _draft_from_bank_row(bank_id, summary, source_title, source_url, category)
+            await self._run_slow(_draft_from_bank_row, bank_id, summary, source_title, source_url, category)
             message = "Draft generated from topic bank."
         except Exception as exc:  # noqa: BLE001 - surface any failure to the UI, don't crash the app
             message = f"Draft generation failed: {exc}"
@@ -1628,6 +1908,72 @@ class DashboardState(rx.State):
             self._reload_posts()
             self._reload_bank()
             self._reload_stats()
+
+    def _update_bank_row(self, bank_id: int, **fields):
+        self.bank_rows = [row.model_copy(update=fields) if row.id == bank_id else row for row in self.bank_rows]
+
+    @rx.event(background=True)
+    async def toggle_bank_summary(self, bank_id: int):
+        """The Summary dropdown on a Topic Bank card: opens/closes it, and the first time
+        writes the summary with the local model (cached after that)."""
+        async with self:
+            row = next((r for r in self.bank_rows if r.id == bank_id), None)
+            if row is None:
+                return
+            opening = not row.summary_open
+            self._update_bank_row(bank_id, summary_open=opening)
+            if not opening or row.llm_summary or row.summarising:
+                return
+            self._update_bank_row(bank_id, summarising=True)
+        summary = await asyncio.to_thread(summarise_bank_row, bank_id)
+        async with self:
+            self._update_bank_row(bank_id, summarising=False, llm_summary=summary)
+
+    @rx.event
+    def set_bank_take(self, bank_id: int, value: str):
+        self._update_bank_row(bank_id, user_take=value)
+
+    @rx.event
+    def save_bank_take(self, bank_id: int):
+        """Your own take / side for this topic - goes into the drafting brief."""
+        row = next((r for r in self.bank_rows if r.id == bank_id), None)
+        if row is None:
+            return
+        with rx.session(url=config.db_url) as session:
+            stored = session.get(TopicBank, bank_id)
+            if stored:
+                stored.user_take = row.user_take.strip() or None
+                session.add(stored)
+                session.commit()
+        self.draft_queue = [
+            item.model_copy(update={"user_take": row.user_take.strip()}) if item.bank_id == bank_id else item
+            for item in self.draft_queue
+        ]
+        self.status_message = "Your take is saved - the draft will be built around it." if row.user_take.strip() else "Take cleared."
+
+    @rx.event(background=True)
+    async def reject_occasion_link(self, bank_id: int):
+        """"Doesn't fit this occasion": unlink it and look for a better fit right away."""
+        async with self:
+            self.is_busy = True
+            self.status_message = "Unlinking, and looking for a story that actually fits the occasion..."
+        try:
+            result = await self._run_slow(reject_calendar_link, bank_id)
+            outcome = result.get("outcome")
+            event = result.get("event", "the occasion")
+            message = {
+                "linked": f"Unlinked. Found a better fit for {event} in the Topic Bank - it's at the top.",
+                "found_online": f"Unlinked. Found a fitting story for {event} online - it's at the top.",
+                "banked": f"Unlinked. Nothing fits {event} yet, so its own angle is banked at the top.",
+                "none": f"Unlinked. Nothing else fits {event} right now - it'll keep looking as news comes in.",
+            }.get(outcome, "Unlinked.")
+        except Exception as exc:  # noqa: BLE001
+            message = f"Couldn't re-link: {exc}"
+        async with self:
+            self.is_busy = False
+            self.status_message = message
+            self._reload_bank()
+            self._reload_calendar()
 
     @rx.event
     def toggle_bank_selection(self, bank_id: int):
@@ -1643,6 +1989,35 @@ class DashboardState(rx.State):
     @rx.event
     def clear_bank_selection(self):
         self.bank_rows = [row.model_copy(update={"is_selected": False}) for row in self.bank_rows]
+
+    @rx.var
+    def visible_bank_rows(self) -> list[BankView]:
+        words = self.bank_search.lower().split()
+        rows = []
+        for row in self.bank_rows:
+            if self.bank_filter == "occasion" and not row.occasion_label:
+                continue
+            if self.bank_filter == "high" and row.tier != "high":
+                continue
+            if self.bank_filter in ("ai", "market") and row.category != self.bank_filter:
+                continue
+            haystack = f"{row.summary} {row.source_title} {row.occasion_label} {row.user_take}".lower()
+            if all(w in haystack for w in words):
+                rows.append(row)
+        return rows
+
+    @rx.event
+    def set_bank_search(self, value: str):
+        self.bank_search = value
+
+    @rx.event
+    def set_bank_filter(self, value: str):
+        self.bank_filter = value
+
+    @rx.event
+    def select_visible_bank_rows(self):
+        visible = {row.id for row in self.visible_bank_rows}
+        self.bank_rows = [row.model_copy(update={"is_selected": True}) if row.id in visible else row for row in self.bank_rows]
 
     @rx.var
     def selected_bank_count(self) -> int:
@@ -1666,6 +2041,8 @@ class DashboardState(rx.State):
                 category=row.category,
                 tier_label=row.tier_label,
                 category_label=row.category_label,
+                occasion_label=row.occasion_label,
+                user_take=row.user_take,
             )
             for row in self.bank_rows
             if row.is_selected and row.id not in already_queued
@@ -1720,7 +2097,8 @@ class DashboardState(rx.State):
                 "media_pairing": item.media_pairing,
             }
             try:
-                _draft_from_bank_row(
+                await self._run_slow(
+                    _draft_from_bank_row,
                     item.bank_id,
                     item.summary,
                     item.source_title,
@@ -1824,7 +2202,7 @@ class DashboardState(rx.State):
         failed = False
         for i in range(min(needed, len(bank_data))):
             try:
-                _draft_from_bank_row(*bank_data[i])
+                await self._run_slow(_draft_from_bank_row, *bank_data[i])
                 generated += 1
             except Exception:  # noqa: BLE001 - keep going, report what actually landed
                 failed = True
@@ -1861,10 +2239,24 @@ class DashboardState(rx.State):
         already decided on"."""
         async with self:
             self.is_busy = True
-            self.status_message = f"Planning the week of {monday}..."
+            self.progress_steps = []
+            self.status_message = f"Planning the week of {monday} - picking topics..."
 
-        result = prepare_week(monday)
-        message = f"Planned {result['planned']} post(s) for the week of {monday}"
+        progress: dict = {}
+
+        def on_progress(steps):
+            progress["steps"] = steps  # read by _run_slow's ticker on the event loop
+
+        started = time.monotonic()
+        try:
+            result = await self._run_slow(prepare_week, monday, on_progress=on_progress, progress=progress)
+        except Exception as exc:  # noqa: BLE001 - surface it, don't leave the app stuck busy
+            async with self:
+                self.is_busy = False
+                self.status_message = f"Planning the week failed: {exc}"
+            return
+        elapsed = int(time.monotonic() - started)
+        message = f"Planned {result['planned']} post(s) for the week of {monday} in {elapsed // 60}:{elapsed % 60:02d}"
         if result["personal"]:
             message += " (one personal post from your updates)"
         elif result["skipped_no_personal"]:
@@ -1930,7 +2322,7 @@ class DashboardState(rx.State):
             self.opinion_busy_id = prompt_id
             self.status_message = "Drafting your take into a post..."
         try:
-            draft_from_take(prompt_id, answer)
+            await asyncio.to_thread(draft_from_take, prompt_id, answer)
             message = "Drafted - it's in Review under Opinion."
         except Exception as exc:  # noqa: BLE001
             message = f"Couldn't draft it ({exc}). Your answer is saved - try again."
@@ -2015,7 +2407,7 @@ class DashboardState(rx.State):
             photos = json.loads(row.photos or "[]") if row else []
         for ph in photos:
             try:
-                result = ingest_file(str(rx.get_upload_dir() / ph["name"]))
+                result = await asyncio.to_thread(ingest_file, str(rx.get_upload_dir() / ph["name"]))
                 ph["path"] = result.get("stored_path") or ""
                 ph["caption"] = result.get("notes") or ""
             except Exception:  # noqa: BLE001
@@ -2065,7 +2457,7 @@ class DashboardState(rx.State):
             self.status_message = f"Researching and drafting: {topic}..."
 
         try:
-            generate_and_save_draft(topic, post_type, skip_research=False)
+            await self._run_slow(generate_and_save_draft, topic, post_type, skip_research=False)
             message = "Draft generated."
         except Exception as exc:  # noqa: BLE001
             message = f"Draft generation failed: {exc}"
@@ -2084,7 +2476,7 @@ class DashboardState(rx.State):
             self.status_message = "Running research cron now..."
 
         try:
-            result = run_daily_research(force=True)
+            result = await self._run_slow(run_daily_research, force=True)
             tiers = result.get("stored_by_tier", {})
             message = (
                 f"Research done - stored {tiers.get('high', 0)} high, "
@@ -2159,9 +2551,7 @@ class DashboardState(rx.State):
             self.voice_characteristic_bigrams = []
             self.voice_syntax_summary = ""
         else:
-            self.voice_profile_status = (
-                f"generated {profile.generated_at.strftime('%d %b %Y')} from {len(samples)} current sample(s)"
-            )
+            self.voice_profile_status = f"Voice profile last rebuilt {profile.generated_at.strftime('%d %b %Y')}."
             profile_data = json.loads(profile.profile_json)
             zeta_words = profile_data.get("zeta_words", [])
             bigrams = profile_data.get("characteristic_bigrams", [])
@@ -2191,11 +2581,22 @@ class DashboardState(rx.State):
                 contributing_zeta_words=_words_present_in(s.raw_text, zeta_words),
                 contributing_bigrams=_bigrams_present_in(s.raw_text, bigrams),
                 is_expanded=s.id in previously_expanded,
+                origin=s.origin or "own",
+                origin_note=s.origin_note or "",
             )
             for s in samples
         ]
+        used = [s for s in samples if (s.origin or "own") in USABLE_ORIGINS]
+        used_texts = [sample_text(s) for s in used]
+        self.voice_coverage_summary = coverage_summary(used_texts) if used_texts else ""
+        self.voice_suggestions = suggested_questions(used_texts, [s.question or "" for s in samples])
+        set_aside = len(samples) - len(used)
+        self.voice_usage_summary = (
+            f"{len(used)} sample(s) shape your voice"
+            + (f"; {set_aside} set aside (AI-written, unconfirmed or private) and never used." if set_aside else ".")
+        )
         counts: dict[str, int] = {}
-        for s in samples:
+        for s in used:
             counts[s.source_type] = counts.get(s.source_type, 0) + 1
         self.voice_sample_counts = [
             SampleCountView(source_type_label=humanize(source_type), count=count)
@@ -2242,6 +2643,29 @@ class DashboardState(rx.State):
                     status_text=status_text,
                 )
             )
+        # The "sounds like you" score's own check: his samples (each held out) vs AI-written
+        # text (samples marked AI-written or suspected, and the persona's AI-written examples).
+        all_samples = get_all_samples(include_unused=True)
+        own_texts = [sample_text(s) for s in all_samples if (s.origin or "own") in USABLE_ORIGINS]
+        ai_texts = [sample_text(s) for s in all_samples if s.origin in ("ai_assisted", "suspected_ai")]
+        ai_texts += [text for text, _fmt in PERSONA_EXEMPLARS]
+        check = validate_score(own_texts, ai_texts)
+        if check["status"] == "ok" and check["ai_mean"] is not None:
+            gap = check["own_mean"] - check["ai_mean"]
+            score_text_line = (
+                f"your own samples score {check['own_mean']:.0f} on average (each scored without itself), "
+                f"AI-written imitations of you {check['ai_mean']:.0f} - a {gap:.0f}-point gap. The wider "
+                "the gap, the better it can tell you apart; more of your own samples widens it."
+            )
+        else:
+            score_text_line = "needs at least 4 of your own samples to check."
+        rows.append(
+            VoiceRegisterHealthView(
+                register_label="'Sounds like you' score",
+                sample_count=check.get("n_own", len(own_texts)),
+                status_text=score_text_line,
+            )
+        )
         self.voice_health_rows = rows
         self.voice_health_checked = True
 
@@ -2332,13 +2756,42 @@ class DashboardState(rx.State):
                 session.commit()
         self._reload_voice()
 
+    @rx.event
+    def use_suggested_question(self, question: str):
+        """Puts a suggested question in the Q&A box, ready to answer (typed or dictated)."""
+        self.voice_qa_question = question
+
+    @rx.event
+    def more_voice_suggestions(self):
+        with rx.session(url=config.db_url) as session:
+            samples = session.exec(sqlmodel.select(VoiceSample)).all()
+        used = [sample_text(s) for s in samples if (s.origin or "own") in USABLE_ORIGINS]
+        asked = [s.question or "" for s in samples] + self.voice_suggestions
+        self.voice_suggestions = suggested_questions(used, asked) or suggested_questions(used, [])
+
+    @rx.event
+    def change_sample_origin(self, sample_id: int, origin: str):
+        """Request: "Some come from posts that you wrote and I liked... then I can decide."
+        Marks a sample as his own words, AI-written or private. Drafting stops (or starts)
+        using it straight away; the profile word lists catch up on the next rebuild."""
+        try:
+            set_sample_origin(sample_id, origin, note="Set on the Voice page")
+        except ValueError as exc:
+            self.status_message = str(exc)
+            return
+        self._reload_voice()
+        self.status_message = (
+            "Saved. New drafts use this straight away. Press Regenerate voice profile when "
+            "you've finished sorting samples, so the profile's word lists catch up."
+        )
+
     @rx.event(background=True)
     async def regenerate_voice_profile(self):
         async with self:
             self.is_busy = True
             self.status_message = "Regenerating voice profile..."
         try:
-            build_and_save_profile()
+            await self._run_slow(build_and_save_profile)
             message = "Voice profile regenerated - new drafts will use it."
         except Exception as exc:  # noqa: BLE001
             message = f"Voice profile regeneration failed: {exc}"
@@ -2391,7 +2844,7 @@ class DashboardState(rx.State):
             path = pathlib.Path(tempfile.gettempdir()) / f"dictation-{uuid.uuid4().hex}{suffix}"
             try:
                 path.write_bytes(base64.b64decode(encoded))
-                text = transcribe_audio(str(path))
+                text = await asyncio.to_thread(transcribe_audio, str(path))
             except Exception as exc:  # noqa: BLE001 - surface any failure to the UI
                 error = f"Transcription failed: {exc}"
             finally:
@@ -2418,6 +2871,8 @@ class DashboardState(rx.State):
                 post = self._find_post(post_id)
                 if post:
                     post.redraft_note = f"{post.redraft_note.rstrip()} {text}".strip()
+            elif target == "voice_qa":
+                self.voice_qa_answer = f"{self.voice_qa_answer.rstrip()} {text}".strip()
 
     @rx.event
     def set_upload_post_type(self, value: str):
@@ -2435,7 +2890,7 @@ class DashboardState(rx.State):
             post_type = self.upload_post_type
 
         try:
-            generate_and_save_draft(notes, post_type, skip_research=True)
+            await self._run_slow(generate_and_save_draft, notes, post_type, skip_research=True)
             message = "Draft generated from your note."
         except Exception as exc:  # noqa: BLE001
             message = f"Draft generation failed: {exc}"
@@ -2485,9 +2940,10 @@ class DashboardState(rx.State):
         for path in paths:
             name = pathlib.Path(path).name
             try:
-                result = ingest_file(path)
-                generate_and_save_draft(
-                    result["notes"], post_type, skip_research=True, source_photo=result.get("stored_path")
+                result = await self._run_slow(ingest_file, path)
+                await self._run_slow(
+                    generate_and_save_draft,
+                    result["notes"], post_type, skip_research=True, source_photo=result.get("stored_path"),
                 )
                 messages.append(f"{name}: draft generated.")
             except UnsupportedMediaError as exc:

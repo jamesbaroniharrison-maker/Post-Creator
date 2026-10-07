@@ -8,6 +8,7 @@ import reflex_local_auth
 from linkedin_content_engine.dashboard.components import (
     PRIMARY_CTA,
     SECONDARY_CTA,
+    fold,
     page_shell,
     stat_card,
     type_select,
@@ -23,8 +24,7 @@ def _stats_panel() -> rx.Component:
     rather than a fifth-through-seventh stat of equal weight."""
     s = DashboardState.stats
     return rx.vstack(
-        rx.heading("Stats", size="4"),
-        rx.text("This week's activity", size="1", class_name="hud-muted", margin_top="-0.5rem"),
+        rx.text("All-time activity", size="1", class_name="hud-muted"),
         rx.grid(
             stat_card("Drafted", s["drafted"]),
             stat_card("Approved", s["approved"]),
@@ -53,7 +53,6 @@ def _upload_box() -> rx.Component:
     that works whichever has content - DashboardState.submit_weekly_input branches on
     the backend rather than needing two separate buttons for two separate inputs."""
     return rx.vstack(
-        rx.heading("Weekly input", size="5"),
         rx.text(
             "Text, photo, or audio - whatever's easiest. Video isn't supported.",
             size="2",
@@ -247,7 +246,6 @@ def _personal_updates_box() -> rx.Component:
     """Milestones and news, with photos, saved for the next planned personal post -
     the only thing a planned personal post is ever written from (planning.py)."""
     return rx.vstack(
-        rx.heading("Personal updates", size="5"),
         rx.text(
             "Milestones, wins, news, things that happened - in your own words, as much detail as you like. "
             "Next time the week is planned, one personal post is written from what's here (with a photo, "
@@ -311,35 +309,94 @@ def _personal_updates_box() -> rx.Component:
     )
 
 
-def _prepare_week_box() -> rx.Component:
-    """One click from nothing to a reviewable week: drafts every day the weekly plan
-    asks for, with visuals, straight into Review."""
-    return rx.vstack(
-        rx.heading("Next week", size="5"),
-        rx.text(
-            "Drafts next week from your weekly plan, ready in Posts > Review, using the "
-            "best research topics available - designs are made once you accept. The personal post is "
-            "written from your Personal updates "
-            "below - with none saved, no personal post is made up and the week is kept to 3 posts. "
-            "Nothing goes out until you accept it and post it yourself.",
-            size="2",
-            class_name="hud-muted",
+def _tile(value, label: str, href: str, attention=None) -> rx.Component:
+    """One "needs you" tile: a big number, what it is, and where it takes you."""
+    return rx.link(
+        rx.vstack(
+            rx.text(value, class_name="hud-stat-value"),
+            rx.text(label, size="2", class_name="hud-muted"),
+            spacing="1",
         ),
-        rx.hstack(
-            rx.button(
-                "Prepare next week",
-                on_click=DashboardState.prepare_next_week,
-                loading=DashboardState.is_busy,
-                **PRIMARY_CTA,
+        href=href,
+        class_name=rx.cond(attention, "hud-tile hud-tile-attention", "hud-tile") if attention is not None else "hud-tile",
+    )
+
+
+def _needs_you() -> rx.Component:
+    """What needs you right now, first thing on the page (request: "a clearer 'what
+    needs me today' view")."""
+    h = DashboardState.home_summary
+    return rx.vstack(
+        rx.heading("Needs you", size="5"),
+        rx.cond(
+            DashboardState.voice_health_warning != "",
+            rx.callout(
+                DashboardState.voice_health_warning,
+                icon="triangle_alert",
+                color_scheme="amber",
+                size="1",
+                width="100%",
             ),
-            rx.button(
-                "Email me next week's posts",
-                on_click=DashboardState.send_digest_now,
-                loading=DashboardState.is_busy,
-                **SECONDARY_CTA,
+        ),
+        rx.grid(
+            _tile(h["review"], "drafts waiting for review", "/posts", attention=h["review"] != "0"),
+            _tile(h["takes"], "stories waiting for your take", "#your-take", attention=h["takes"] != "0"),
+            _tile(h["this_accepted"], "accepted this week, not yet posted", "/posts", attention=h["this_accepted"] != "0"),
+            _tile(h["personal"], "personal updates saved", "#personal-updates"),
+            columns=rx.breakpoints(initial="2", md="4"),
+            spacing="3",
+            width="100%",
+        ),
+        spacing="3",
+        width="100%",
+    )
+
+
+def _week_column(title: str, status, primary, secondary) -> rx.Component:
+    return rx.vstack(
+        rx.heading(title, size="4"),
+        rx.text(status, size="2", class_name="hud-muted"),
+        rx.hstack(primary, secondary, spacing="2", wrap="wrap"),
+        spacing="2",
+        width="100%",
+        padding="var(--pad)",
+        class_name="hud-surface-2",
+    )
+
+
+def _prepare_week_box() -> rx.Component:
+    """This week and next week side by side (stacked on a phone): where each stands,
+    and its planning + email buttons together."""
+    h = DashboardState.home_summary
+    return rx.vstack(
+        rx.heading("Plan", size="5"),
+        rx.grid(
+            _week_column(
+                "This week",
+                h["this_accepted"] + " accepted · " + h["this_published"] + " published · " + h["this_planned"] + " days planned",
+                rx.button("Plan this week", on_click=DashboardState.prepare_this_week, loading=DashboardState.is_busy, **SECONDARY_CTA),
+                rx.button("Email me this week", on_click=DashboardState.send_week_digest("this"), loading=DashboardState.is_busy, **SECONDARY_CTA),
             ),
-            spacing="2",
-            wrap="wrap",
+            _week_column(
+                "Next week",
+                h["next_accepted"] + " accepted · " + h["next_planned"] + " days planned",
+                rx.button("Prepare next week", on_click=DashboardState.prepare_next_week, loading=DashboardState.is_busy, **PRIMARY_CTA),
+                rx.button("Email me next week", on_click=DashboardState.send_week_digest("next"), loading=DashboardState.is_busy, **SECONDARY_CTA),
+            ),
+            columns=rx.breakpoints(initial="1", md="2"),
+            spacing="3",
+            width="100%",
+        ),
+        fold(
+            "How planning works",
+            rx.text(
+                "Drafts the week from your weekly plan, ready in Posts > Review, using the best research topics "
+                "available - designs are made once you accept. The personal post is written from your Personal "
+                "updates - with none saved, no personal post is made up and the week is kept to 3 posts. "
+                "Plan this week only fills the days left. Nothing goes out until you accept it and post it yourself.",
+                size="2",
+                class_name="hud-muted",
+            ),
         ),
         spacing="3",
         width="100%",
@@ -348,19 +405,24 @@ def _prepare_week_box() -> rx.Component:
 
 @reflex_local_auth.require_login
 def home_page() -> rx.Component:
-    """The reference's Home mockup wraps everything - stats, weekly input - in one
-    40px-padded "main content card" (design-reference.html, UI-OVERHAUL.md §1's
-    `--pad-lg` token), not two separately-padded cards - request (audit finding, not
-    a fresh ask): "--pad-lg... never actually applied anywhere.\""""
+    """Action first (request: "home dashboard"): what needs you, then the two weeks'
+    plans, then your take. The longer forms (personal updates, weekly input) and the
+    stats fold away underneath. Still one 40px-padded main card (--pad-lg)."""
+    h = DashboardState.home_summary
     return page_shell(
         "/",
         rx.card(
             rx.vstack(
-                _stats_panel(),
+                _needs_you(),
                 _prepare_week_box(),
-                _your_take_box(),
-                _personal_updates_box(),
-                _upload_box(),
+                rx.box(_your_take_box(), id="your-take", width="100%"),
+                rx.box(
+                    fold("Personal updates (" + h["personal"] + " saved)", _personal_updates_box()),
+                    id="personal-updates",
+                    width="100%",
+                ),
+                fold("Draft from a note, photo or recording", _upload_box()),
+                fold("Stats", _stats_panel()),
                 spacing="0",
                 gap="2.5rem",
                 width="100%",

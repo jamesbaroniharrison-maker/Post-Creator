@@ -102,7 +102,8 @@ def build_digest(week: str | None = None) -> dict:
 
     start = date.fromisoformat(week)
     nice_week = f"{start.day} {start.strftime('%B %Y')}"
-    subject = f"Next week's posts (w/c {nice_week}) - {len(bundles)} ready"
+    which = "This week's" if week == current_week_label() else "Next week's"
+    subject = f"{which} posts (w/c {nice_week}) - {len(bundles)} ready"
     text_lines = [f"Your LinkedIn posts for the week commencing {nice_week}.", ""]
     html_days: list[str] = []
     inline: list[tuple[str, str]] = []
@@ -159,8 +160,9 @@ def build_digest(week: str | None = None) -> dict:
         )
 
     if not html_days:
-        text_lines.append("Nothing approved or planned for next week yet.")
-        html_days.append('<p style="font:16px Arial;color:#4D4C43">Nothing approved or planned for next week yet.</p>')
+        when = which.split("'")[0].lower()
+        text_lines.append(f"Nothing approved or planned for {when} yet.")
+        html_days.append(f'<p style="font:16px Arial;color:#4D4C43">Nothing approved or planned for {when} yet.</p>')
     footer = f"{awaiting} draft(s) waiting in Review. " if awaiting else ""
     if trim:
         footer += "Carousels show their first slide only here, to stay under the email size limit; every slide is in the PDF. "

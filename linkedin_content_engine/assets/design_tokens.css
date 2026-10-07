@@ -285,3 +285,86 @@ code, .rt-Code, .hud-mono {
   background: var(--border-strong);
   border-radius: var(--radius);
 }
+
+/* ============================================
+   PHONE LAYOUT (request: "phone layout" - used from an iPhone over Tailscale).
+   Below 640px: tighter padding, one-line scrollable nav, stacked card actions,
+   bigger tap targets. Desktop is unchanged.
+   ============================================ */
+
+/* Nav rows scroll sideways in one line instead of wrapping into two. */
+.hud-nav {
+  flex-wrap: nowrap !important;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.hud-nav::-webkit-scrollbar { display: none; }
+.hud-nav > * { flex-shrink: 0; white-space: nowrap; }
+
+/* Sub-tab lists (Posts: Review / Accepted / ...) scroll the same way. */
+.rt-TabsList {
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-wrap: nowrap;
+}
+.rt-TabsList::-webkit-scrollbar { display: none; }
+.rt-TabsTrigger { flex-shrink: 0; }
+
+/* A card's main column + action column: side by side on desktop, stacked on phone. */
+.hud-split {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  width: 100%;
+}
+.hud-split > .hud-split-main { flex: 1; min-width: 0; }
+.hud-split > .hud-split-side { flex-shrink: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+
+/* Bottom-pinned action bar on Review cards: stays in reach while scrolling a long post. */
+.hud-sticky-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+  padding-bottom: 0.25rem;
+}
+
+/* Home "needs you" tiles that link somewhere. */
+.hud-tile {
+  display: block;
+  text-decoration: none !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border);
+  background: var(--bg-surface-2);
+  padding: 1rem;
+  transition: border-color 0.15s;
+}
+.hud-tile:hover { border-color: var(--accent-terracotta); }
+.hud-tile-attention { border-left: 3px solid var(--accent-terracotta); }
+
+@media (max-width: 640px) {
+  :root {
+    --pad: 1rem;
+    --pad-lg: 1rem;
+  }
+  .rt-Container { padding-left: 0 !important; padding-right: 0 !important; }
+  .hud-shell { padding: 0.75rem !important; }
+  .hud-header-sub { display: none !important; }
+  .hud-nav { gap: 1.25rem !important; margin-bottom: 1rem !important; }
+  .rt-Card { padding: 0.875rem !important; }
+
+  .hud-split { flex-direction: column; gap: 0.75rem; }
+  .hud-split > .hud-split-side { flex-direction: row; flex-wrap: wrap; width: 100%; }
+  .hud-split > .hud-split-side > * { flex: 1 1 auto; }
+
+  /* Comfortable tap targets and no iOS zoom-on-focus (needs 16px+ inputs). */
+  .rt-Button { min-height: 40px; }
+  input, textarea, select, .rt-TextFieldInput, .rt-TextAreaInput { font-size: 16px !important; }
+  .rt-SelectTrigger { min-height: 36px; max-width: 100%; }
+  /* Long badges (e.g. "For Agentic AI Marketing Summit London 2026, 22 Oct") wrap
+     instead of running off the card. */
+  .radix-themes .rt-Badge { white-space: normal !important; height: auto !important; max-width: 100%; min-width: 0; flex-shrink: 1; text-align: left; }
+}

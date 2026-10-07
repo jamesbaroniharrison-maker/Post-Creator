@@ -24,6 +24,8 @@ FUNNEL_STAGES = ["TOF", "MOF", "BOF"]
 # "standard" value (see assign_rotation's docstring for the collision this avoided).
 AUTO_SENTINEL = "auto"
 HOOK_POSTURES = [
+    "answer_first",
+    "react_first",
     "empirical",
     "aspirational_contrast",
     "cost_arbitrage",
@@ -31,8 +33,67 @@ HOOK_POSTURES = [
     "in_medias_res",
 ]
 LENGTH_BUCKETS = ["micro", "standard", "deep"]
-STRUCTURAL_FORMATS = ["narrative", "skimmable_index", "binary_contrast"]
+# The kinds of post (shape.py::KINDS decides which, per topic). The first three are the
+# original fixed formats; the rest come from how James actually talks (VOICE-ANALYSIS.md).
+STRUCTURAL_FORMATS = [
+    "narrative",
+    "skimmable_index",
+    "binary_contrast",
+    "quick_take",
+    "observation",
+    "argument",
+    "it_depends",
+    "repeat_and_undercut",
+]
 MEDIA_PAIRINGS = ["candid_photo", "carousel", "infographic", "screenshot", "chart", "text_only"]
+
+# Plain-English meaning of every option, shown under the Topic Bank queue's dropdowns
+# (request: "impossible to remember what all the keys mean"). Short versions of what
+# draft.py actually tells the model for each one.
+STYLE_HELP = {
+    "funnel_stage": {
+        AUTO_SENTINEL: "Picked for you, balancing the week.",
+        "TOF": "Top of funnel - reach. Human, reflective or contrarian. No selling.",
+        "MOF": "Middle - trust. A practical how-to, workflow or teardown people can use.",
+        "BOF": "Bottom - proof. Real results and numbers; a soft call to action is allowed.",
+    },
+    "hook_posture": {
+        AUTO_SENTINEL: "Picked for you, avoiding your last 3 openings.",
+        "answer_first": "Opens with your actual view, straight away, no build-up.",
+        "react_first": "Opens with your honest first reaction to the thing.",
+        "empirical": "Opens on a specific, unrounded number or data point.",
+        "aspirational_contrast": "States a common belief, then flips it.",
+        "cost_arbitrage": "Old, slow/expensive way vs the new, cheap/fast way.",
+        "authority_listicle": "Opens on your own observation, then promises a numbered list.",
+        "in_medias_res": "Drops straight into the moment something changed or broke.",
+    },
+    "length_bucket": {
+        AUTO_SENTINEL: "Picked for you from how much there is to say, varied from your recent posts.",
+        "micro": "Short: under 150 words. Say it and stop.",
+        "standard": "Medium: 150-300 words. Room for a story or an argument.",
+        "deep": "Long: 300-420 words. Only when there's genuinely that much (max twice a month).",
+    },
+    "structural_format": {
+        AUTO_SENTINEL: "Picked for you to suit the topic, avoiding your last 2 kinds.",
+        "narrative": "A story told in order, building to the point.",
+        "skimmable_index": "A short list of the points, one line each (only when there are several).",
+        "binary_contrast": "'The old way' vs 'the better way', then a 2-3 step fix.",
+        "quick_take": "A quick reaction: your view, one reason, done.",
+        "observation": "Something you noticed, and what's really going on underneath.",
+        "argument": "Your view, a fair nod to the other side, then why you still hold it.",
+        "it_depends": "\"It depends\" - on what, the rule for each case, then your call.",
+        "repeat_and_undercut": "A repeated line knocked down each time, then what it actually was.",
+    },
+    "media_pairing": {
+        AUTO_SENTINEL: "Picked for you to suit the post type.",
+        "candid_photo": "A real, unposed photo.",
+        "carousel": "Swipeable slides (PDF).",
+        "infographic": "One designed graphic summing it up.",
+        "screenshot": "A screenshot of the thing being discussed.",
+        "chart": "A chart of the key numbers.",
+        "text_only": "No image - just the post.",
+    },
+}
 
 # Length isn't rotated on the same "never repeat the last one" anti-fatigue basis as
 # the other variables - that would fight against actually landing in the sweet spot
@@ -70,6 +131,16 @@ def _recent_posts(limit: int = 3) -> list[Post]:
 def _pick_excluding(options: list[str], used: set[str]) -> str:
     remaining = [o for o in options if o not in used] or options
     return random.choice(remaining)
+
+
+# How James actually opens (VOICE-ANALYSIS.md rule 1): with the answer or with his reaction.
+# These lead; the framework's postures stay in the mix for variety.
+_HOOK_WEIGHTS = {"answer_first": 3.0, "react_first": 2.0}
+
+
+def _pick_hook(used: set[str]) -> str:
+    remaining = [h for h in HOOK_POSTURES if h not in used] or HOOK_POSTURES
+    return random.choices(remaining, weights=[_HOOK_WEIGHTS.get(h, 1.0) for h in remaining], k=1)[0]
 
 
 def _deep_posts_this_month() -> int:
@@ -125,6 +196,7 @@ def assign_rotation(
     overrides: dict[str, str] | None = None,
     post_type: str | None = None,
     has_photo: bool = False,
+    also_exclude: list[dict] | None = None,
 ) -> dict:
     """Pick this post's funnel stage + THBM execution variables, excluding whatever the
     last 3 posts used, per the framework's anti-fatigue rule (length is handled
@@ -148,17 +220,39 @@ def assign_rotation(
     used_hooks = {p.hook_posture for p in recent if p.hook_posture}
     used_formats = {p.structural_format for p in recent if p.structural_format}
     used_media = {p.media_pairing for p in recent if p.media_pairing}
+    # Rotations already picked for posts not saved yet (prepare_week drafts several days
+    # at once, so they'd otherwise all see the same "last 3 posts" and match each other).
+    for r in also_exclude or []:
+        used_hooks.add(r.get("hook_posture"))
+        used_formats.add(r.get("structural_format"))
+        used_media.add(r.get("media_pairing"))
 
     funnel_stage = random.choice(_week_ratio(scheduled_week) if scheduled_week else FUNNEL_STAGES)
 
     result = {
         "funnel_stage": funnel_stage,
-        "hook_posture": _pick_excluding(HOOK_POSTURES, used_hooks),
+        "hook_posture": _pick_hook(used_hooks),
         "length_bucket": _pick_length_bucket(),
         "structural_format": _pick_excluding(STRUCTURAL_FORMATS, used_formats),
         "media_pairing": _pick_media(post_type, has_photo, used_media),
     }
-    for key, value in (overrides or {}).items():
+    # A rotation dict passed back in (planning.py drafts a pre-assigned week this way) carries
+    # "_auto": the fields that were picked automatically and should stay free, so the shape
+    # planner can still fit length and kind to the topic instead of treating them as forced.
+    overrides = overrides or {}
+    still_auto = set(overrides.get("_auto", []))
+    forced = set()
+    for key, value in overrides.items():
+        if key.startswith("_"):
+            continue
+        if key in still_auto:  # keep the week's pre-picked value, but leave it free
+            if value and value != AUTO_SENTINEL:
+                result[key] = value
+            continue
         if value and value != AUTO_SENTINEL:
             result[key] = value
+            forced.add(key)
+    # Which fields nobody chose: draft.py's shape planner decides length and kind for these.
+    result["_auto"] = [k for k in list(result) if k not in forced]
+    result["_post_type"] = post_type
     return result

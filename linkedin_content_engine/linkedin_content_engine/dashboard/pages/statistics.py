@@ -28,6 +28,27 @@ def statistics_page() -> rx.Component:
                 spacing="4",
                 width="100%",
             ),
+            rx.card(
+                rx.vstack(
+                    rx.heading("Does it sound like you?", size="4"),
+                    rx.text(
+                        "How much you change drafts before accepting them is the real test - it "
+                        "should go down as the voice improves. Your edits are also fed back into "
+                        "the next drafts.",
+                        size="2",
+                        class_name="hud-muted",
+                    ),
+                    rx.text("Your edits: ", rx.text.strong(DashboardState.stats_edit_rate), size="2"),
+                    rx.text("Average 'sounds like you' score: ", rx.text.strong(DashboardState.stats_voice_avg), size="2"),
+                    rx.cond(
+                        DashboardState.stats_score_check != "",
+                        rx.text(DashboardState.stats_score_check, size="2", class_name="hud-muted"),
+                    ),
+                    spacing="2",
+                    width="100%",
+                ),
+                width="100%",
+            ),
             rx.heading("Content framework mix", size="4"),
             rx.text(
                 "How the CPIO/THBM rotation variables have actually been used across every draft.",

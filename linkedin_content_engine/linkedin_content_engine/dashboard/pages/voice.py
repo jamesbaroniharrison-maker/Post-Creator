@@ -16,6 +16,8 @@ import reflex as rx
 import reflex_local_auth
 
 from linkedin_content_engine.dashboard.components import PRIMARY_CTA, SECONDARY_CTA, empty_state, page_shell
+from linkedin_content_engine.dashboard.recorder import record_button
+from linkedin_content_engine.voice_engine.ingestion import ORIGINS
 from linkedin_content_engine.dashboard.state import (
     DashboardState,
     SampleCountView,
@@ -33,6 +35,39 @@ def _contribution_chip(word: rx.Var) -> rx.Component:
     return rx.badge(word, variant="soft", size="1")
 
 
+def _origin_badge(item: VoiceSampleView) -> rx.Component:
+    """Shown only when a sample is set aside, so the list stays quiet for normal samples."""
+    return rx.match(
+        item.origin,
+        ("suspected_ai", rx.badge("Looks AI-written - check", color_scheme="amber", variant="soft", size="1")),
+        ("ai_assisted", rx.badge("AI-written - not used", color_scheme="gray", variant="soft", size="1")),
+        ("private", rx.badge("Private - never used", color_scheme="red", variant="soft", size="1")),
+        rx.fragment(),
+    )
+
+
+def _origin_select(item: VoiceSampleView) -> rx.Component:
+    """Request: "Some come from posts that you wrote and I liked... then I can decide." Only
+    "Your own words" samples shape the voice or are shown to the drafting model."""
+    return rx.hstack(
+        rx.text("Whose words are these?", size="1", weight="medium", class_name="hud-muted"),
+        rx.select.root(
+            rx.select.trigger(),
+            rx.select.content(
+                rx.select.group(
+                    *[rx.select.item(label, value=key) for key, label in ORIGINS.items()],
+                )
+            ),
+            value=item.origin,
+            on_change=lambda value: DashboardState.change_sample_origin(item.id, value),
+            size="1",
+        ),
+        spacing="2",
+        align="center",
+        wrap="wrap",
+    )
+
+
 def _sample_row(item: VoiceSampleView) -> rx.Component:
     """Request: "I want to be able to click on each one of the samples and it
     expands out so I can see all the information in it... what information it
@@ -43,9 +78,11 @@ def _sample_row(item: VoiceSampleView) -> rx.Component:
         rx.vstack(
             rx.hstack(
                 rx.badge(item.source_type_label, variant="outline", size="1"),
+                _origin_badge(item),
                 rx.text(item.date_added_str, size="1", class_name="hud-muted"),
                 spacing="2",
                 align="center",
+                wrap="wrap",
             ),
             rx.cond(
                 item.question_preview != "",
@@ -79,6 +116,12 @@ def _sample_row(item: VoiceSampleView) -> rx.Component:
     expanded_detail = rx.cond(
         item.is_expanded,
         rx.vstack(
+            _origin_select(item),
+            rx.cond(
+                item.origin_note != "",
+                rx.text(item.origin_note, size="1", class_name="hud-muted"),
+                rx.fragment(),
+            ),
             rx.text(item.full_text, size="2", white_space="pre-wrap"),
             rx.cond(
                 (item.contributing_zeta_words.length() > 0) | (item.contributing_bigrams.length() > 0),
@@ -158,6 +201,7 @@ def _samples_card() -> rx.Component:
                 spacing="2",
                 wrap="wrap",
             ),
+            rx.text(DashboardState.voice_usage_summary, size="1", class_name="hud-muted"),
             rx.text(DashboardState.voice_profile_status, size="1", class_name="hud-muted"),
             rx.cond(
                 DashboardState.voice_samples.length() > 0,
@@ -210,19 +254,61 @@ def _add_sample_card() -> rx.Component:
     )
 
 
+def _suggestion_button(question: rx.Var) -> rx.Component:
+    # Full width with the text in its own wrapping element: on a phone the question text ran
+    # off the edge of the card when it sat directly inside the button.
+    return rx.button(
+        rx.text(question, size="1", text_align="left", white_space="normal", width="100%"),
+        on_click=DashboardState.use_suggested_question(question),
+        variant="soft",
+        size="1",
+        height="auto",
+        width="100%",
+        padding="0.45rem 0.6rem",
+        justify_content="flex-start",
+    )
+
+
 def _add_qa_card() -> rx.Component:
-    """One Gemini question + your answer -> one sample (request: "two boxes, one for
-    gemini and the other for my response")."""
+    """One question + your answer -> one sample (request: "two boxes, one for gemini and the
+    other for my response"). The suggested questions (voice_engine/questions.py) target what
+    his samples cover least - at first, him reacting to news and talking about AI and work,
+    which is most of what gets posted."""
     return rx.card(
         rx.vstack(
-            rx.heading("Add a Gemini Q&A", size="4"),
+            rx.heading("Answer a question", size="4"),
             rx.text(
-                "One question Gemini asked you, and the answer you gave - the question "
-                "is kept for context but only your answer feeds the voice profile.",
+                "A question (one Gemini asked you, or one of the suggestions) and your answer, "
+                "in your own words - talk it, type it, don't polish it. Only your answer feeds "
+                "the voice profile.",
                 size="2",
                 class_name="hud-muted",
             ),
-            _field_label("Question Gemini asked"),
+            rx.cond(
+                DashboardState.voice_coverage_summary != "",
+                rx.text(DashboardState.voice_coverage_summary, size="1", class_name="hud-muted"),
+            ),
+            rx.cond(
+                DashboardState.voice_suggestions.length() > 0,
+                rx.vstack(
+                    _field_label("Questions that would help your voice most - tap one to answer it"),
+                    rx.vstack(
+                        rx.foreach(DashboardState.voice_suggestions, _suggestion_button),
+                        spacing="2",
+                        width="100%",
+                    ),
+                    rx.button(
+                        "Different questions",
+                        on_click=DashboardState.more_voice_suggestions,
+                        variant="ghost",
+                        size="1",
+                    ),
+                    spacing="2",
+                    width="100%",
+                    align="start",
+                ),
+            ),
+            _field_label("Question"),
             rx.text_area(
                 value=DashboardState.voice_qa_question,
                 on_change=DashboardState.set_voice_qa_question,
@@ -231,7 +317,13 @@ def _add_qa_card() -> rx.Component:
                 min_height="70px",
                 resize="vertical",
             ),
-            _field_label("Your answer"),
+            rx.hstack(
+                _field_label("Your answer"),
+                rx.spacer(),
+                record_button("voice_qa"),
+                width="100%",
+                align="center",
+            ),
             rx.text_area(
                 value=DashboardState.voice_qa_answer,
                 on_change=DashboardState.set_voice_qa_answer,

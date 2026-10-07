@@ -1647,3 +1647,217 @@ some life in them, without sounding AI.
   research, re-offers after a void; planning gives each AI day a different angle. Live
   phone-sized browser check of Home (Your take), Review (badges, Void dialog) and
   Statistics.
+
+## Speed + live progress, "Plan this week" on Home (5 Oct 2026)
+
+Request: "make things faster, or make it look less like just frozen screens when it is
+thinking", plus a "Plan this week" button next to "Prepare next week".
+
+- **The freeze was the event loop, not just slow AI.** Background events called blocking
+  code directly, so while a draft ran the server couldn't push status or answer clicks.
+  `DashboardState._run_slow(fn, ...)` now runs the work via `asyncio.to_thread`, ticks
+  `busy_seconds` every second and pushes `progress_steps` from a shared dict. Every
+  `is_busy` handler uses it; the non-busy ones (calendar link, accept-visual, opinion,
+  photo captions, transcription) use `asyncio.to_thread` directly.
+- **Status panel** (`components.status_panel`): while busy, spinner + message + m:ss
+  timer + a per-item list (queued / drafting / done / failed). The final list stays
+  after the job until the message is dismissed, so failed days are visible.
+- **Best-of-N candidates draft in parallel** (`DRAFT_PARALLEL_CANDIDATES`, default 3;
+  1 = old behaviour). A round takes about as long as one candidate.
+- **prepare_week is two-phase**: phase 1 decides every day one at a time (bank row,
+  note, rotation - `assign_rotation(also_exclude=...)` so days in the batch don't copy
+  each other's style); phase 2 drafts `WEEK_PARALLEL_DRAFTS` (default 2) days at once,
+  reporting each through `on_progress`. Cap now counts days scheduled, not days drafted.
+- **Gemini 429/503** now waits and retries (up to 3 times, honouring Retry-After), since
+  up to ~6 calls can be in flight. Lower the two env vars if rate limits still bite.
+- Tested on a DB copy with drafting stubbed (1s each): 3 days in 2.2s, distinct findings,
+  progress streamed in order, a failing day marked failed and counted. Not yet tested
+  live against Gemini.
+
+## Redraft fix, queue explanations, calendar fit check, summaries, your take (5 Oct 2026)
+
+- **Redraft crashed** ("1 validation error for ResearchFinding content"): saved sources
+  are `SourceRef` {title, url}, but redraft rebuilt them as `ResearchFinding`, which needs
+  `content`. Content now comes from the post's Topic Bank row summary, else the title.
+- **Queue**: each queued card shows the source title (linked), occasion badge and your
+  take; under every dropdown a line says what the current pick does
+  (`rotation.STYLE_HELP`, short versions of draft.py's own guidance).
+- **Calendar fit** (`calendar_engine/matching.py`): embeddings now only shortlist (top 5,
+  cosine >= 0.45); **Gemini** scores each 0-10 against a strict rubric (shared broad
+  theme = 4-6, name coincidence = 0-3) and links only at >= 7, keeping its reason in
+  `TopicBank.calendar_link_note`. Nothing fits -> `find_story_online` (up to 2 Tavily
+  searches, same judge) -> else the occasion's own angle. Tested on the 6 real links:
+  llama3 and qwen3:4b-instruct passed everything (Ada Lovelace Institute -> Ada Lovelace
+  Day 9/10 and 7/10), Gemini got all six right in ~3s each, so the judge is Gemini.
+  No Gemini -> link only on cosine >= 0.70.
+- **"Doesn't fit"** on a linked card (`reject_calendar_link`): unlinks, adds the event to
+  `TopicBank.rejected_event_ids` (never offered for it again), re-runs the search at
+  once. A rejected occasion angle is retired (used=True) and not re-banked.
+- **Your take** (`TopicBank.user_take`): small box on each card, saved on blur/Save.
+  `planning._brief_for` adds it, plus the occasion and why it fits, to the drafting
+  brief - before this the linked occasion never reached the prompt at all.
+- **Summary dropdown** (`summarise_bank_row`, `local_llm.py`): local model (Ollama,
+  `LOCAL_LLM_MODEL`, default OLLAMA_MODEL) reads the article (falls back to the stored
+  snippet), 3 bullets + "Link to <occasion>:" / "Weak link:" line. Cached in
+  `TopicBank.llm_summary`; cleared when the link is rejected. ~60s on llama3.
+- Migration a1c4e5d7b9f2 (4 TopicBank columns). Backup:
+  backups/linkedin_content_engine.before-calendar-fit-20261005-033212.db.
+- Tested on a DB copy: rejecting PwC survey <- World Mental Health Day found a Statista
+  "AI and mental wellbeing" survey for WMHD 2026 online (27s), summary generated, brief
+  carries occasion + reason + take.
+
+## Phone layout, Review, Home, Topic Bank - targeted fixes (5 Oct 2026)
+
+Request: "improve UI and functionality" -> phone layout, review workflow, home
+dashboard, topic bank; targeted fixes, keep the current look. Checked with Playwright
+screenshots at 390px and 1366px against a private copy of the app (DB copy, throwaway
+`preview` login, ports 3100/8100, no .env keys) - never the live DB or account.
+
+- **Phone CSS** (`assets/design_tokens.css`, end of file): `.hud-nav` one scrolling
+  line; Posts sub-tabs scroll; `.hud-split` (main + side column, stacked under 640px);
+  `.hud-sticky-actions`; `.hud-tile`; under 640px tighter padding, header subtitle
+  hidden, 40px buttons, 16px inputs (stops iOS zoom), badges wrap
+  (`.radix-themes .rt-Badge` needs that specificity + !important to beat Radix).
+- **Nav**: Posts shows a count of drafts waiting.
+- **Review card** (`components.review_post_card`): post text (20rem) + Accept / Redraft
+  / Reject / copy / Void up front, action row sticks to the card bottom; occasion badge +
+  why it fits on top (`PostView.occasion_label/occasion_note`, from the Topic Bank row in
+  `_reload_posts`); characters / 3,000; style, hashtags, tags, sources, compliance and
+  visual under a native `<details>` ("Details"), redraft note under another (open when a
+  note exists). Shared `components.fold()`; hashtag/tag/sources/compliance editors split
+  out as `_post_extras` (Accepted still uses the full `post_editable_body`).
+- **Home**: "Needs you" tiles (drafts waiting, takes waiting, accepted not posted,
+  personal updates) from `DashboardState.home_summary`; This week / Next week columns with
+  status + Plan / Email buttons each (new "Email me this week" ->
+  `send_week_digest("this")`); Personal updates, note/upload drafting and Stats folded.
+  Stats label corrected to "All-time activity" (the counts were never weekly).
+- **Topic Bank**: search, filter buttons (All / For an occasion / High tier / AI /
+  Market), "Showing X of Y", "Select all shown"; selection bar sticky; cards use
+  `.hud-split` so buttons go under the topic on a phone; take box flexes.
+- Phone page heights: Home 4168 -> 2625px, Posts 1833 -> 994px, Topic Bank
+  13359 -> ~10150px. No horizontal overflow on any page at either width.
+- **Live outage, ~5 min, caused here**: `reflex run` hot-reloads, and an intermediate
+  save (`send_digest_now(self, which=...)` while Settings still bound it to a bare
+  on_click - Reflex then passes the click event into `which`) failed compile and took
+  the whole server down. Fix: `send_digest_now()` stays arg-less and hands off to
+  `send_week_digest(which)`. Lesson: test in a copy first; only copy finished,
+  compiled code into the live folder.
+
+## Voice upgrade: dynamic shapes, sample labels, "sounds like you", voice pass, guards (6 Oct 2026)
+
+Requests: "posts feel like they follow a pattern of style, not like a human who changes
+lengths and paragraphs depending on topic"; then "keep upgrading... highest leverage
+thing to take this to an indistinguishable voice to mine", free models only, list the 3
+biggest project risks after every 3 improvements. Full voice analysis: VOICE-ANALYSIS.md.
+Built in a private copy (code + DB copy, preview app on 3100/8100 with a throwaway login)
+and copied in dependency order - see the 5 Oct outage lesson above.
+
+- **Shapes** (`drafting_engine/shape.py`): length, paragraph rhythm (uneven, adds up to the
+  word target) and kind of post (quick take, observation, story, argument, it-depends,
+  repeat-and-undercut, old-vs-new, list) are planned per topic from how much material
+  there is, steering away from the last posts' length/paragraphs/kind/opening words. A
+  post from his own note is capped at ~3x the note (a 20-word note was stretched to 150
+  words and the model invented scenes to fill it). The fixed "Hook -> Context -> Value ->
+  Proof -> Ending" order, length recipes and "4 lines max" rule are gone. Rotation: new
+  hooks `answer_first`/`react_first` (weighted 3x/2x), `_auto` fields so planning only
+  fills what the user didn't choose; the week planner's pre-picked values stay.
+- **Sample labels** (`VoiceSample.origin`: own / suspected_ai / ai_assisted / private,
+  `ingestion.USABLE_ORIGINS`): only "own" is used anywhere. #15 private (its own text
+  says the topic must never be public - its words had leaked into prompt bigrams);
+  #21-#25 suspected_ai pending James's decision. Voice page: badge + "Whose words are
+  these?" select. Samples are cleaned on read (`voice_engine/textnorm.py`: links,
+  "hashtag#" debris, transcription em dashes, US -> UK spelling); stored text untouched.
+- **"Sounds like you" score** (`voice_engine/fingerprint.py`, `Post.voice_score/notes`):
+  contractions, I/me/my, hedges, nominalisations, sentence-length variety, long words,
+  AI-phrase list (minus anything he really says), overuse of his pet words. His held-out
+  samples score ~95; drafts in the DB before this 16-34; Delta barely separated them
+  (approved 1.49 vs rejected 1.39). Best-of-N now ranks on it (Delta breaks ties); shown
+  as a badge + reasons on Review cards; average on Statistics.
+- **Prompt** (`draft.py`): the persona phrase lists (DISCOURSE_OPENERS, BRIDGES,
+  VOCABULARY - none of the 15 openers/bridges appear in his 18 samples, several swear)
+  and the llama3 close-read block (which claimed he asks rhetorical questions) are out.
+  In: evidence-based "how he writes", his measured everyday words (`his_markers`), first
+  person ("a post about news is his reaction to it"), AI phrases to avoid, recent
+  openings/endings to avoid, his real spoken answers as examples (persona exemplars were
+  AI-written; only the list one remains, labelled layout-only), his recent edits.
+  Deterministic finish on every draft: contractions + British spelling (`naturalise`).
+- **Voice pass** (`drafting_engine/voice_pass.py`): one rewrite of the winning draft with
+  5 of his answers and numeric instructions from the score; kept only if no new numbers/
+  names, no new personal story, length/paragraphs close, the audit passes and the score
+  rises 3+. `VOICE_PASS_MODEL` = comma list tried in order, then the drafting model.
+- **Guards** (`drafting_engine/grounding.py`): first-person events / "my manager" /
+  "last week" not supported by note, research or about_me (10/10 on test cases); scene
+  details not in the note; a note-based post that drops the note ("leaves out my dad").
+  Ranking penalties + "CHECK THIS IS TRUE" / "Details not in your note" at the top of the
+  compliance note. The audit no longer fails a post for an em dash or question mark it
+  doesn't contain.
+- **Edits** (`Post.original_text`, `voice_engine/edits.py`): the draft as written is kept;
+  on accepted posts the word diff becomes "how he's corrected recent drafts" in both
+  prompts, and Statistics shows the average share of words he changed.
+- **Samples** (`voice_engine/questions.py`): Voice page "Answer a question" suggests
+  questions from the least-covered area (his samples: AI & tech 4, work 5, reacting to
+  news 0), with dictation; "Your take" answers become samples (`add_own_words`).
+- **Gemini**: a 429 came back with retry-after 26,366s and the old code slept on it (a
+  7-hour frozen draft); long retry-afters now fall back to `GEMINI_FALLBACK_MODEL` and the
+  model is skipped for an hour. Full Gemini 3 Flash models run with thinking "low"
+  (`GEMINI_THINKING_LEVEL`; 75s -> ~10s); the audit can use `GEMINI_AUDIT_MODEL`.
+- Migration b8d3e6f2a4c1 (voicesample.origin/origin_note, post.original_text/voice_score/
+  voice_notes). Backup: backups/linkedin_content_engine.before-voice-upgrade-20261006-174316.db.
+- Eval (5 fixed topics, nothing saved): this morning's drafts 49 avg; new pipeline 74-90
+  across runs (run-to-run spread is large at n=2-3); 85 on the final run. Biggest
+  remaining gap: news posts that don't speak as him (0-2 I/me/my per 100 words vs ~6).
+
+Later the same day (all live):
+- **Voice pass instructions** are numeric targets from the score ("say what he thinks in
+  the first person in at least three places; he uses ~6 I/me/my per 100 words"), not a
+  diagnosis - Flash-Lite rewrites went from mostly 60->60 to 60->85, 64->95. Model chain
+  `VOICE_PASS_MODEL=gemini-3.8-flash` (~20 free calls/day, one per post) then the drafting
+  model; Gemma 4 26B/31B tested and left out (55s+ calls, 500s, timeouts). 60s x 2 tries.
+- **Report-speak**: drafts and the blind test parroted the source's wording ("graduate
+  intake", "Flatterers cause immediate distrust"); the prompt now says to say every fact
+  the way he would. Blind-test imitations went from 57 to 73 on the score.
+- **Audit false alarms**: code overrules the Flash-Lite check when it complains about an em
+  dash/question mark the post doesn't have, or quotes words the post doesn't contain
+  (it failed one rewrite for "game-changer ... (Wait, let me double check...)").
+- **Invented specifics** (`draft.invented_specifics` / `voice_pass.new_specifics`): digits
+  and names not in note/research/bio, plus number words on posts from his own note
+  ("an hour", "twenty-minute", "three thousand miles" all came up in tests), cost a
+  candidate 15 each and are listed in the compliance note.
+- **Model pin**: `GEMINI_DRAFT_MODEL=gemini-3.5-flash-lite` (what "-latest" resolved to on
+  6 Oct) with `GEMINI_FALLBACK_MODEL` on 429 or a retired model. Note: `reflex run` children
+  inherit the parent's env, so a CHANGED .env value only applies after a full restart.
+- **Week variety**: shapes planned in the same run count as recent (lock-protected), so a
+  week drafted two at a time doesn't repeat kinds (simulated week: 5 kinds of 5).
+- **Home** warns when the last 5 drafts score 12+ below the 15 before (silent model swap);
+  **Review** marks news posts whose opinion he never gave ("View is a guess"); edits are
+  re-scored on save, and Statistics shows whether his edits raise the score (the score's
+  own test - if not mostly up, it needs re-tuning).
+- **Blind test** (VOICE-BLIND-TEST.html, printable): 6 pairs, his real answer vs the engine
+  writing the same points from a neutral list. Script kept in the session scratchpad.
+- **Free quotas are per model per day**: gemini-3.5-flash-lite = 500 requests/day (the eval
+  runs that day used it all, ~4h before reset - the live app shares the key, so keep test
+  runs small), gemini-3.8-flash ~20. "-latest" as the fallback for its own model is no
+  fallback, so `GEMINI_FALLBACK_MODEL` is now a list: gemini-3.1-flash-lite,gemini-flash-
+  lite-latest (separate allowances). The audit goes through the same chain.
+- End-to-end check of the real entry points on a DB copy (`generate_and_save_draft` for a
+  personal note, `planning.draft_from_bank_row`): both saved with original_text, voice
+  score/notes and compliance flags ("Details not in your note (hall)"). The bank post's
+  voice pass had failed on the quota above and it scored 67 - the voice pass matters.
+- Voice page corpus-health check now includes the score's own validation: his samples
+  (each held out) 85 vs AI-written imitations of him 75 on 6 Oct.
+
+## Accepted/Rejected moves, phone fix, "programme", score check (7 Oct 2026)
+
+- **Accepted**: "Back to Rejected" (removes it from its week and its export folder, then
+  re-sorts the weeks) and Void.
+- **Rejected**: "Accept after all" and Void.
+- **Voice page**: the suggested-question buttons are full width with wrapping text. At
+  390px the text used to run off the card.
+- **Spelling**: `textnorm.to_british` changes "program(s)" to "programme(s)" unless the same
+  sentence is about software (computer, code, app, Python, install...).
+- **Score check against the app's own drafts**: James's posts (each held out) score above a
+  draft 86% of the time (85 vs 45), so the badge is earning its place.
+  - The same test on the WPA copy gave 47%. Her posts and the local model's drafts both
+    averaged 89, so the number is hidden there until it passes (see the WPA CLAUDE.md).
+  - Caveat for both apps: as the drafts genuinely improve, this test gets harder to pass,
+    and that would be good news, not a broken score.

@@ -17,6 +17,7 @@ from rxconfig import config
 from linkedin_content_engine.drafting_engine.research import ResearchFinding, ResearchResult
 from linkedin_content_engine.models import OpinionPrompt, Post, TopicBank
 from linkedin_content_engine.utils import as_utc
+from linkedin_content_engine.voice_engine.ingestion import add_own_words
 
 OPINION_EVERY_DAYS = 3
 PROMPTS_PER_ROUND = 3
@@ -109,6 +110,13 @@ def draft_from_take(prompt_id: int, answer: str) -> Post:
         session.add(prompt)
         session.commit()
         summary, title, url, bank_id = bank.summary, bank.source_title, bank.source_url, bank.id
+
+    # His take is his own words on exactly the kind of topic the posts cover - the thing the
+    # voice samples are shortest of - so it's kept as a sample too (voice_engine/ingestion.py).
+    try:
+        add_own_words(answer, question=f"Your take on: {title or summary[:120]}")
+    except Exception:  # noqa: BLE001 - a sample that didn't save must never stop the draft
+        pass
 
     topic = (
         f"James's own opinion - this is the point of the post. Keep his stance and his "

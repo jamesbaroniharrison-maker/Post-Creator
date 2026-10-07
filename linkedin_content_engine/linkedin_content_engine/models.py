@@ -37,6 +37,13 @@ class TopicBank(rx.Model, table=True):
     calendar_event_id: int | None = sqlmodel.Field(default=None, foreign_key="calendarevent.id")
     embedding: str | None = None  # JSON vector, cached the first time calendar matching needs it
     topic_angle: str | None = None  # angles.py - e.g. "policy_regulation"
+    # Calendar linking (calendar_engine): why the local model judged this story a fit for
+    # its occasion, occasions you said it doesn't fit (JSON list of ids, never re-linked
+    # to those), your own take/angle for the post, and the cached local-LLM summary.
+    calendar_link_note: str | None = None
+    rejected_event_ids: str = ""
+    user_take: str | None = None
+    llm_summary: str | None = None
 
 
 class Post(rx.Model, table=True):
@@ -97,6 +104,15 @@ class Post(rx.Model, table=True):
     # a one-line reason. Scored after drafting, after the opening-sharpening pass.
     opening_score: int | None = None
     opening_note: str | None = None
+    # The draft exactly as the engine wrote it, before any edits in Review. Edits only
+    # ever change draft_text, so the difference between the two is what James changed:
+    # the most direct evidence there is of what still doesn't sound like him.
+    original_text: str | None = None
+    # "Sounds like you" (voice_engine/fingerprint.py): 0-100 against his own samples, plus
+    # the plain-English reasons it falls short. Separates his writing from machine-written
+    # text far better than voice_delta does at this corpus size.
+    voice_score: int | None = None
+    voice_notes: str | None = None
 
 
 class VoiceSample(rx.Model, table=True):
@@ -115,6 +131,13 @@ class VoiceSample(rx.Model, table=True):
     # cached here rather than recomputed on every single draft - matters once the
     # corpus is large, since retrieval used to re-embed every sample on every call.
     embedding: str | None = None
+    # Whose words these are, and so what the voice engine may do with them
+    # (voice_engine/ingestion.py ORIGINS): "own" (his words: used for everything),
+    # "suspected_ai" (looks AI-written, not yet confirmed), "ai_assisted" (written or
+    # polished by AI, e.g. a draft he liked) and "private" (his words, but the topic
+    # must never reach a post). Only "own" samples shape the voice or reach a prompt.
+    origin: str = "own"
+    origin_note: str | None = None
 
 
 class VoiceProfile(rx.Model, table=True):
